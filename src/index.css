@@ -1,6 +1,17 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-brand-dark: #0f172a;
+  --color-brand-blue: #2563eb;
+  --color-brand-electric: #3b82f6;
+  --color-brand-light: #f1f5f9;
+  --color-brand-white: #ffffff;
+  --color-status-pending: #eab308;
+  --color-status-assigned: #3b82f6;
+  --color-status-process: #f97316;
+  --color-status-completed: #22c55e;
+  --color-status-cancelled: #ef4444;
+}
 
 @layer components {
   .btn-primary { @apply bg-brand-blue text-white px-4 py-2 rounded-lg hover:bg-brand-electric transition-colors duration-200 font-medium disabled:opacity-50; }

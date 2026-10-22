@@ -19,8 +19,9 @@ CoolAceGest usa Supabase para guardar la operación y **Supabase Auth** para ini
 
 1. Abre **SQL Editor** en el mismo proyecto de Supabase.
 2. Copia el contenido completo de `database.sql` y ejecútalo.
-3. El script es una migración aditiva para conservar clientes, vehículos y órdenes que ya existan. Crea perfiles, técnicos, informes, cotizaciones, catálogo, notificaciones, trazabilidad, configuración y un bucket privado para archivos.
-4. La tabla antigua `usuarios` deja de usarse para autenticar, pierde su columna de contraseñas en texto plano y queda sin acceso desde la aplicación. Las cuentas de esa tabla no se convierten automáticamente: vuelve a crearlas en Supabase Auth.
+3. El script es una migración aditiva para conservar clientes, vehículos y órdenes que ya existan. Crea perfiles, técnicos, informes, cotizaciones, catálogo, notificaciones, trazabilidad, configuración y un bucket privado para archivos. También agrega las tablas operativas a la publicación `supabase_realtime` para propagar los cambios de inmediato a las sesiones abiertas.
+4. Si el proyecto ya estaba configurado, vuelve a ejecutar el `database.sql` completo para habilitar las actualizaciones en tiempo real. Si Supabase informa que no existe la publicación `supabase_realtime`, habilita Realtime para las tablas operativas desde la configuración de Database > Publications. La aplicación además consulta los cambios automáticamente cada 30 segundos y al volver a la pestaña, como respaldo si Realtime no está disponible.
+5. La tabla antigua `usuarios` deja de usarse para autenticar, pierde su columna de contraseñas en texto plano y queda sin acceso desde la aplicación. Las cuentas de esa tabla no se convierten automáticamente: vuelve a crearlas en Supabase Auth.
 
 ## 3. Crear la primera cuenta administradora
 

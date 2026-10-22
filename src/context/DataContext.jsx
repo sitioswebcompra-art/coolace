@@ -1,8 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { isSupabaseConfigured, supabase } from '../supabase';
 
 const DataContext = createContext(null);
+const backgroundSyncInterval = 30_000;
 const emptyData = {
   clientes: [],
   vehiculos: [],
@@ -46,16 +47,21 @@ export const DataProvider = ({ children }) => {
   const [data, setData] = useState(emptyData);
   const [isLoaded, setIsLoaded] = useState(false);
   const [dataError, setDataError] = useState('');
+  const [realtimeError, setRealtimeError] = useState('');
+  const realtimeRefreshTimeout = useRef(null);
+  const dataRefreshId = useRef(0);
 
-  const refreshData = useCallback(async () => {
+  const refreshData = useCallback(async ({ silent = false } = {}) => {
+    const refreshId = ++dataRefreshId.current;
     if (!user || !isSupabaseConfigured || !supabase) {
       setData(emptyData);
       setDataError('');
+      setRealtimeError('');
       setIsLoaded(true);
       return;
     }
 
-    setIsLoaded(false);
+    if (!silent) setIsLoaded(false);
     setDataError('');
     const queries = [
       ['clientes', supabase.from('clientes').select('*').order('created_at', { ascending: false })],
@@ -74,6 +80,7 @@ export const DataProvider = ({ children }) => {
 
     try {
       const results = await Promise.all(queries.map(([, query]) => query));
+      if (refreshId !== dataRefreshId.current) return;
       const failed = results.find((result) => result.error);
       if (failed?.error) {
         console.error('Error cargando datos de Supabase:', failed.error);
@@ -87,17 +94,82 @@ export const DataProvider = ({ children }) => {
       });
       setData(nextData);
     } catch (error) {
+      if (refreshId !== dataRefreshId.current) return;
       console.error('Error cargando datos de Supabase:', error);
       setDataError(getErrorMessage(error));
       setData(emptyData);
     } finally {
-      setIsLoaded(true);
+      if (refreshId === dataRefreshId.current) setIsLoaded(true);
     }
   }, [user]);
 
   useEffect(() => {
     if (!authLoading) refreshData();
   }, [authLoading, refreshData]);
+
+  useEffect(() => {
+    if (authLoading || !user || !supabase) {
+      setRealtimeError('');
+      return undefined;
+    }
+
+    const tables = [
+      'clientes',
+      'vehiculos',
+      'ordenes',
+      'tecnicos',
+      'informes_tecnicos',
+      'cotizaciones',
+      'cotizacion_items',
+      'repuestos',
+      'notificaciones',
+      'company_settings',
+      ...(user.role === 'Administrador' ? ['profiles'] : []),
+      ...(user.role === 'Cliente' ? [] : ['activity_logs']),
+    ];
+    const scheduleSilentRefresh = () => {
+      if (realtimeRefreshTimeout.current) {
+        window.clearTimeout(realtimeRefreshTimeout.current);
+      }
+      realtimeRefreshTimeout.current = window.setTimeout(() => {
+        refreshData({ silent: true });
+      }, 150);
+    };
+    const channel = supabase.channel(`data-changes-${user.id}`);
+    tables.forEach((table) => {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => {
+        scheduleSilentRefresh();
+      });
+    });
+
+    const subscription = channel.subscribe((status, error) => {
+      if (status === 'SUBSCRIBED') {
+        setRealtimeError('');
+        refreshData({ silent: true });
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.error('No se pudo establecer la suscripción en tiempo real de Supabase:', error || status);
+        setRealtimeError('La actualización en tiempo real no está disponible. Ejecuta database.sql en Supabase y verifica que Realtime esté habilitado.');
+      }
+    });
+
+    const syncWhenVisible = () => {
+      if (document.visibilityState === 'visible') scheduleSilentRefresh();
+    };
+    const syncInterval = window.setInterval(syncWhenVisible, backgroundSyncInterval);
+    document.addEventListener('visibilitychange', syncWhenVisible);
+    window.addEventListener('focus', syncWhenVisible);
+
+    return () => {
+      window.clearInterval(syncInterval);
+      document.removeEventListener('visibilitychange', syncWhenVisible);
+      window.removeEventListener('focus', syncWhenVisible);
+      if (realtimeRefreshTimeout.current) {
+        window.clearTimeout(realtimeRefreshTimeout.current);
+        realtimeRefreshTimeout.current = null;
+      }
+      supabase.removeChannel(subscription);
+    };
+  }, [authLoading, user, refreshData]);
 
   const saveRecord = async (table, record, currentRecords, setRecords) => {
     if (!supabase) throw new Error('Supabase no está configurado.');
@@ -297,7 +369,7 @@ export const DataProvider = ({ children }) => {
 
   return (
     <DataContext.Provider value={{
-      data, isLoaded, dataError, refreshData, saveCliente, saveVehiculo, saveTecnico,
+      data, isLoaded, dataError: [dataError, realtimeError].filter(Boolean).join(' '), refreshData, saveCliente, saveVehiculo, saveTecnico,
       saveRepuesto, saveInforme, saveCotizacion, addOrden, updateOrdenEstado, updateOrden, convertQuoteToOrder,
       logActivity, deleteRecord, markNotificationRead, saveCompanySettings, saveUserAccess,
     }}>

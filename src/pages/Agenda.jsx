@@ -105,7 +105,7 @@ export default function Agenda() {
     setError('');
     const vehicle = data.vehiculos.find((item) => item.id === Number(form.vehiculoId));
     const technician = data.tecnicos.find((item) => item.id === Number(form.tecnico_id));
-    if (!vehicle) {
+    if (!vehicle && (!editingOrder || form.vehiculoId)) {
       setError('Selecciona un vehículo válido.');
       setSaving(false);
       return;
@@ -132,8 +132,8 @@ export default function Agenda() {
       const orderData = {
         ...form,
         estado: editingOrder ? form.estado : (technician ? 'Asignado' : 'Pendiente'),
-        vehiculoId: vehicle.id,
-        clienteId: vehicle.clienteId,
+        vehiculoId: vehicle?.id || null,
+        clienteId: vehicle?.clienteId || null,
         tecnico_id: technician?.id || null,
         tecnico: technician?.nombre || null,
         hora_inicio: form.hora_inicio || null,
@@ -238,8 +238,8 @@ export default function Agenda() {
         <form onSubmit={submit} className="max-h-[75vh] space-y-5 overflow-y-auto p-5">
           <InlineMessage>{error}</InlineMessage>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Vehículo"><select className={inputClass} required value={form.vehiculoId} onChange={(event) => setForm({ ...form, vehiculoId: event.target.value })}>
-              <option value="">Selecciona vehículo</option>
+            <Field label="Vehículo"><select className={inputClass} required={!editingOrder} value={form.vehiculoId} onChange={(event) => setForm({ ...form, vehiculoId: event.target.value })}>
+              <option value="">{editingOrder ? 'Sin asignar' : 'Selecciona vehículo'}</option>
               {data.vehiculos.filter((vehicle) => vehicle.estado === 'Activo').map((vehicle) => {
                 const client = data.clientes.find((item) => item.id === vehicle.clienteId);
                 return <option key={vehicle.id} value={vehicle.id}>{vehicle.patente} · {client?.nombre || 'Cliente'}</option>;
@@ -263,7 +263,7 @@ export default function Agenda() {
           </div>
           <div className="flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
             <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">Cancelar</button>
-            <button type="submit" disabled={saving || !data.vehiculos.length} className="btn-primary">{saving ? 'Guardando...' : editingOrder ? 'Guardar cambios' : 'Crear orden'}</button>
+            <button type="submit" disabled={saving || (!editingOrder && !data.vehiculos.length)} className="btn-primary">{saving ? 'Guardando...' : editingOrder ? 'Guardar cambios' : 'Crear orden'}</button>
           </div>
         </form>
       </Modal>}

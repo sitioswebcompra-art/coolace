@@ -56,7 +56,7 @@ const getErrorMessage = (error) => {
   if (error?.code === '23503') {
     const relatedField = getRelatedField(error);
     const fieldMessage = relatedField ? ` Campo relacionado: ${relatedField}.` : '';
-    return `No se puede eliminar este registro porque tiene datos relacionados.${fieldMessage} Elimina o reasigna esos registros primero.`;
+    return `No se puede eliminar permanentemente porque otros registros todavía lo utilizan.${fieldMessage} Elimina o reasigna primero esos registros relacionados.`;
   }
   return error?.message || 'Ocurrió un error al comunicarse con Supabase.';
 };
@@ -373,6 +373,36 @@ export const DataProvider = ({ children }) => {
     });
   };
 
+  const permanentlyDeleteRecord = async (table, id) => {
+    const target = archivableRecords[table];
+    if (!target) throw new Error('Este tipo de registro no se puede eliminar permanentemente.');
+    if (user?.role !== 'Administrador') throw new Error('Solo un administrador puede eliminar registros permanentemente.');
+    if (!supabase) throw new Error('Supabase no está configurado.');
+
+    const { data: deleted, error } = await supabase.from(table)
+      .delete()
+      .eq(target.idColumn, id)
+      .not('archived_at', 'is', null)
+      .select(target.idColumn)
+      .maybeSingle();
+    if (error) {
+      console.error(`Error eliminando permanentemente registro de ${table}:`, error);
+      throw new Error(getErrorMessage(error));
+    }
+    if (!deleted) throw new Error('El registro ya no está en la papelera. Actualiza la página e inténtalo de nuevo.');
+
+    setData((current) => ({
+      ...current,
+      [target.key]: current[target.key].filter((record) => String(record.id) !== String(id)),
+    }));
+    await logActivity({
+      entidad: target.entity,
+      entidad_id: String(id),
+      accion: 'eliminado permanentemente',
+      descripcion: `Se eliminó permanentemente el registro ${id} (${target.entity}).`,
+    });
+  };
+
   const markNotificationRead = async (id) => {
     if (!supabase) throw new Error('Supabase no está configurado.');
     const { error } = await supabase.from('notificaciones').update({ leida: true }).eq('id', id);
@@ -422,7 +452,7 @@ export const DataProvider = ({ children }) => {
     <DataContext.Provider value={{
       data, isLoaded, dataError: [dataError, realtimeError].filter(Boolean).join(' '), refreshData, saveCliente, saveVehiculo, saveTecnico,
       saveRepuesto, saveInforme, saveCotizacion, addOrden, updateOrdenEstado, updateOrden, convertQuoteToOrder,
-      logActivity, archiveRecord, restoreRecord, markNotificationRead, saveCompanySettings, saveUserAccess,
+      logActivity, archiveRecord, restoreRecord, permanentlyDeleteRecord, markNotificationRead, saveCompanySettings, saveUserAccess,
     }}>
       {children}
     </DataContext.Provider>

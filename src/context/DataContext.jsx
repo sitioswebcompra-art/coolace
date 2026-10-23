@@ -29,18 +29,37 @@ const archivableRecords = {
   repuestos: { key: 'repuestos', entity: 'repuesto', idColumn: 'id' },
 };
 
-const getRelatedField = (error) => {
-  const referencingTable = error?.details?.match(/referenced from table "([^"]+)"/i)?.[1];
+const relatedTableLabels = {
+  clientes: 'Clientes',
+  cotizacion_items: 'líneas de cotización',
+  cotizaciones: 'Cotizaciones',
+  informes_tecnicos: 'Informes técnicos',
+  ordenes: 'órdenes de trabajo',
+  profiles: 'Usuarios',
+  vehiculos: 'Vehículos',
+};
+
+const getRelatedReference = (error) => {
+  const referencingTable = error?.details?.match(/referenced from table "([^"]+)"/i)?.[1]
+    || error?.message?.match(/foreign key constraint "[^"]+" on table "([^"]+)"/i)?.[1];
   const constraint = error?.constraint
     || error?.message?.match(/foreign key constraint "([^"]+)"/i)?.[1];
-  if (!referencingTable || typeof constraint !== 'string') return null;
+  if (!referencingTable) return null;
 
-  const prefix = `${referencingTable}_`;
-  const suffix = '_fkey';
-  if (!constraint.startsWith(prefix) || !constraint.endsWith(suffix)) return null;
+  let field = null;
+  if (typeof constraint === 'string') {
+    const prefix = `${referencingTable}_`;
+    const suffix = '_fkey';
+    if (constraint.startsWith(prefix) && constraint.endsWith(suffix)) {
+      field = constraint.slice(prefix.length, -suffix.length) || field;
+    }
+  }
 
-  const field = constraint.slice(prefix.length, -suffix.length);
-  return field ? `${referencingTable}.${field}` : null;
+  return {
+    table: referencingTable,
+    tableLabel: relatedTableLabels[referencingTable] || referencingTable,
+    field: field || null,
+  };
 };
 
 const getErrorMessage = (error) => {
@@ -54,9 +73,12 @@ const getErrorMessage = (error) => {
     return 'No tienes permisos para esta operación. Revisa la sesión y las políticas RLS de Supabase.';
   }
   if (error?.code === '23503') {
-    const relatedField = getRelatedField(error);
-    const fieldMessage = relatedField ? ` Campo relacionado: ${relatedField}.` : '';
-    return `No se puede eliminar permanentemente porque otros registros todavía lo utilizan.${fieldMessage} Elimina o reasigna primero esos registros relacionados.`;
+    const related = getRelatedReference(error);
+    if (related) {
+      const fieldMessage = related.field ? ` mediante el campo ${related.field}` : '';
+      return `No se puede eliminar permanentemente: hay registros de ${related.tableLabel} vinculados${fieldMessage}. Resuelve esa relación y vuelve a intentarlo. Si el registro relacionado está archivado, elimínalo primero desde Papelera.`;
+    }
+    return 'No se puede eliminar permanentemente porque hay otros registros relacionados. Revisa los registros vinculados y vuelve a intentarlo.';
   }
   return error?.message || 'Ocurrió un error al comunicarse con Supabase.';
 };
@@ -387,6 +409,7 @@ export const DataProvider = ({ children }) => {
       .maybeSingle();
     if (error) {
       console.error(`Error eliminando permanentemente registro de ${table}:`, error);
+      if (error.code === '23503') await refreshData({ silent: true });
       throw new Error(getErrorMessage(error));
     }
     if (!deleted) throw new Error('El registro ya no está en la papelera. Actualiza la página e inténtalo de nuevo.');
@@ -401,6 +424,40 @@ export const DataProvider = ({ children }) => {
       accion: 'eliminado permanentemente',
       descripcion: `Se eliminó permanentemente el registro ${id} (${target.entity}).`,
     });
+  };
+
+  const permanentlyDeleteQuoteLines = async (quoteId) => {
+    if (user?.role !== 'Administrador') throw new Error('Solo un administrador puede eliminar líneas de cotización.');
+    if (!supabase) throw new Error('Supabase no está configurado.');
+    const quote = data.cotizaciones.find((item) => String(item.id) === String(quoteId));
+    if (!quote?.archived_at) throw new Error('Primero archiva la cotización antes de eliminar sus líneas.');
+    const expectedCount = data.cotizacionItems.filter((item) => String(item.cotizacion_id) === String(quoteId)).length;
+
+    const { data: deletedLines, error } = await supabase.from('cotizacion_items')
+      .delete()
+      .eq('cotizacion_id', quoteId)
+      .select('id');
+    if (error) {
+      console.error('Error eliminando las líneas de la cotización:', error);
+      throw new Error(getErrorMessage(error));
+    }
+
+    const deletedIds = new Set((deletedLines || []).map((item) => item.id));
+    if (deletedIds.size < expectedCount) {
+      await refreshData({ silent: true });
+      throw new Error('No se eliminaron todas las líneas. Actualiza database.sql en Supabase y confirma que solo Administración tenga permiso para eliminar líneas.');
+    }
+    setData((current) => ({
+      ...current,
+      cotizacionItems: current.cotizacionItems.filter((item) => !deletedIds.has(item.id)),
+    }));
+    await logActivity({
+      entidad: 'cotización',
+      entidad_id: quote.numero,
+      accion: 'líneas eliminadas permanentemente',
+      descripcion: `Se eliminaron permanentemente ${deletedIds.size} línea(s) de la cotización ${quote.numero}. La cotización sigue en Papelera.`,
+    });
+    return deletedIds.size;
   };
 
   const markNotificationRead = async (id) => {
@@ -452,7 +509,7 @@ export const DataProvider = ({ children }) => {
     <DataContext.Provider value={{
       data, isLoaded, dataError: [dataError, realtimeError].filter(Boolean).join(' '), refreshData, saveCliente, saveVehiculo, saveTecnico,
       saveRepuesto, saveInforme, saveCotizacion, addOrden, updateOrdenEstado, updateOrden, convertQuoteToOrder,
-      logActivity, archiveRecord, restoreRecord, permanentlyDeleteRecord, markNotificationRead, saveCompanySettings, saveUserAccess,
+      logActivity, archiveRecord, restoreRecord, permanentlyDeleteRecord, permanentlyDeleteQuoteLines, markNotificationRead, saveCompanySettings, saveUserAccess,
     }}>
       {children}
     </DataContext.Provider>

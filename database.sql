@@ -974,6 +974,9 @@ create policy "cotizacion_items_insert_staff" on public.cotizacion_items for ins
   with check (public.can_manage_operations());
 create policy "cotizacion_items_update_staff" on public.cotizacion_items for update to authenticated
   using (public.can_manage_operations()) with check (public.can_manage_operations());
+drop policy if exists "cotizacion_items_delete_admin" on public.cotizacion_items;
+create policy "cotizacion_items_delete_admin" on public.cotizacion_items for delete to authenticated
+  using (public.current_app_role() = 'Administrador');
 
 drop policy if exists "notificaciones_own_access" on public.notificaciones;
 create policy "notificaciones_own_access" on public.notificaciones for all to authenticated

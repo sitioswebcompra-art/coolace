@@ -31,7 +31,8 @@ const deletableRecords = {
 
 const getRelatedField = (error) => {
   const referencingTable = error?.details?.match(/referenced from table "([^"]+)"/i)?.[1];
-  const constraint = error?.constraint;
+  const constraint = error?.constraint
+    || error?.message?.match(/foreign key constraint "([^"]+)"/i)?.[1];
   if (!referencingTable || typeof constraint !== 'string') return null;
 
   const prefix = `${referencingTable}_`;

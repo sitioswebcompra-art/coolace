@@ -50,22 +50,22 @@ export function InlineMessage({ children, tone = 'error' }) {
   return <p role={tone === 'error' ? 'alert' : 'status'} className={`rounded-lg border px-3 py-2 text-sm ${colors}`}>{children}</p>;
 }
 
-export function DeleteButton({ label, onDelete, onError }) {
-  const [deleting, setDeleting] = useState(false);
-  const handleDelete = async () => {
-    if (!window.confirm(`¿Eliminar ${label}? Esta acción no se puede deshacer. Si tiene registros relacionados, primero deberás eliminarlos o reasignarlos.`)) return;
-    setDeleting(true);
+export function ArchiveButton({ label, onArchive, onError }) {
+  const [archiving, setArchiving] = useState(false);
+  const handleArchive = async () => {
+    if (!window.confirm(`¿Archivar ${label}? Se conservarán sus datos y podrás restaurarlo desde Papelera.`)) return;
+    setArchiving(true);
     try {
-      await onDelete();
+      await onArchive();
     } catch (error) {
-      onError(error?.message || `No se pudo eliminar ${label}.`);
+      onError(error?.message || `No se pudo archivar ${label}.`);
     } finally {
-      setDeleting(false);
+      setArchiving(false);
     }
   };
-  return <button type="button" onClick={handleDelete} disabled={deleting}
+  return <button type="button" onClick={handleArchive} disabled={archiving}
     className="btn-secondary inline-flex items-center gap-1 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50">
-    <Trash2 size={14} />{deleting ? 'Eliminando...' : 'Eliminar'}
+    <Trash2 size={14} />{archiving ? 'Archivando...' : 'Archivar'}
   </button>;
 }
 

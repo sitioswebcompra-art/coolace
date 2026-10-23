@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { supabase } from '../supabase';
-import { DeleteButton, EmptyState, Field, InlineMessage, Modal, PageTitle, StatusBadge, formatDate, inputClass } from '../components/ui';
+import { ArchiveButton, EmptyState, Field, InlineMessage, Modal, PageTitle, StatusBadge, formatDate, inputClass } from '../components/ui';
 import ExportActions from '../components/ExportActions';
 
 const checklistItems = [
@@ -74,7 +74,7 @@ function SignaturePad({ canvasRef, onChange }) {
 
 export default function Informes() {
   const { user } = useAuth();
-  const { data, saveInforme, updateOrdenEstado, deleteRecord, isLoaded, dataError } = useData();
+  const { data, saveInforme, updateOrdenEstado, archiveRecord, isLoaded, dataError } = useData();
   const isAdmin = user?.role === 'Administrador';
   const [searchParams] = useSearchParams();
   const [selectedOrderId, setSelectedOrderId] = useState(searchParams.get('orden') || '');
@@ -92,9 +92,9 @@ export default function Informes() {
     fallasText: '', repuestosText: '', materialesText: '',
   });
 
-  const selectedOrder = data.ordenes.find((order) => order.id === selectedOrderId);
+  const selectedOrder = data.ordenes.find((order) => !order.archived_at && order.id === selectedOrderId);
   const latestByOrder = new Map();
-  data.informes.forEach((report) => {
+  data.informes.filter((report) => !report.archived_at).forEach((report) => {
     if (!latestByOrder.has(report.orden_id)) latestByOrder.set(report.orden_id, report);
   });
 
@@ -261,7 +261,7 @@ export default function Informes() {
   if (!isLoaded && !dataError) return <p className="text-slate-500">Cargando informes técnicos...</p>;
   return <div className="space-y-6">
     <PageTitle title="Informes técnicos" description="Registra diagnósticos, mediciones, checklist, evidencias y firma desde terreno."
-      actions={<ExportActions title="Informes técnicos" rows={data.informes.map((report) => {
+      actions={<ExportActions title="Informes técnicos" rows={data.informes.filter((report) => !report.archived_at).map((report) => {
         const order = data.ordenes.find((item) => item.id === report.orden_id);
         const vehicle = data.vehiculos.find((item) => item.id === order?.vehiculoId);
         const client = data.clientes.find((item) => item.id === order?.clienteId);
@@ -279,11 +279,11 @@ export default function Informes() {
     {error && !showEditor && <InlineMessage>{error}</InlineMessage>}
     {dataError && <InlineMessage>{dataError}</InlineMessage>}
     <section className="space-y-3">
-      {data.ordenes.length ? data.ordenes.map((order) => {
+      {data.ordenes.filter((order) => !order.archived_at).length ? data.ordenes.filter((order) => !order.archived_at).map((order) => {
         const client = data.clientes.find((item) => item.id === order.clienteId);
         const vehicle = data.vehiculos.find((item) => item.id === order.vehiculoId);
         const report = latestByOrder.get(order.id);
-        const orderReports = data.informes.filter((item) => item.orden_id === order.id);
+        const orderReports = data.informes.filter((item) => !item.archived_at && item.orden_id === order.id);
         return <article key={order.id} className="card flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2"><span className="font-bold text-brand-blue">{order.id}</span><StatusBadge value={order.estado} /><StatusBadge value={report?.estado || 'Sin informe'} /></div>
@@ -294,8 +294,8 @@ export default function Informes() {
             <button onClick={() => openReport(order)} className="btn-primary inline-flex items-center justify-center gap-2"><FileText size={17} />{report ? 'Abrir informe' : 'Completar informe'}</button>
             {isAdmin && orderReports.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 text-xs text-slate-500">
               <span>Informe {formatDate(item.created_at)} · {item.estado}</span>
-              <DeleteButton label={`el informe técnico de la orden ${order.id}`}
-                onDelete={async () => { await deleteRecord('informes_tecnicos', item.id); setNotice('El informe técnico se eliminó correctamente.'); }}
+              <ArchiveButton label={`el informe técnico de la orden ${order.id}`}
+                onArchive={async () => { await archiveRecord('informes_tecnicos', item.id); setNotice('El informe técnico se archivó. Puedes restaurarlo desde Papelera.'); }}
                 onError={setActionError} />
             </div>)}
           </div>

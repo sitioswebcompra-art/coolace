@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Pencil, Plus, Search, Truck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
-import { DeleteButton, EmptyState, Field, InlineMessage, Modal, PageTitle, StatusBadge, formatDate, inputClass } from '../components/ui';
+import { ArchiveButton, EmptyState, Field, InlineMessage, Modal, PageTitle, StatusBadge, formatDate, inputClass } from '../components/ui';
 import ExportActions from '../components/ExportActions';
 
 const blankVehicle = {
@@ -15,7 +15,7 @@ const blankVehicle = {
 
 export default function Vehiculos() {
   const { user } = useAuth();
-  const { data, saveVehiculo, deleteRecord, isLoaded, dataError } = useData();
+  const { data, saveVehiculo, archiveRecord, isLoaded, dataError } = useData();
   const readOnly = user?.role === 'Cliente';
   const isAdmin = user?.role === 'Administrador';
   const [search, setSearch] = useState('');
@@ -26,7 +26,7 @@ export default function Vehiculos() {
   const [notice, setNotice] = useState('');
   const [actionError, setActionError] = useState('');
 
-  const filtered = useMemo(() => data.vehiculos.filter((vehicle) => {
+  const filtered = useMemo(() => data.vehiculos.filter((vehicle) => !vehicle.archived_at).filter((vehicle) => {
     const client = data.clientes.find((item) => item.id === vehicle.clienteId);
     const query = search.trim().toLowerCase();
     return !query || [vehicle.patente, vehicle.marca, vehicle.modelo, vehicle.vin, client?.nombre]
@@ -85,11 +85,11 @@ export default function Vehiculos() {
         Kilometraje: vehicle.kilometraje, Equipo: [vehicle.equipo_marca, vehicle.equipo_modelo].filter(Boolean).join(' '),
         Refrigerante: vehicle.refrigerante, 'Último mantenimiento': vehicle.ultimo_mantenimiento,
         'Próximo mantenimiento': vehicle.proximo_mantenimiento, Estado: vehicle.estado,
-      }))} />{!readOnly && <button onClick={openCreate} disabled={!data.clientes.length} className="btn-primary flex items-center gap-2"><Plus size={18} /> Nuevo vehículo</button>}</>} />
+      }))} />{!readOnly && <button onClick={openCreate} disabled={!data.clientes.some((client) => !client.archived_at && client.estado === 'Activo')} className="btn-primary flex items-center gap-2"><Plus size={18} /> Nuevo vehículo</button>}</>} />
       <InlineMessage tone="success">{notice}</InlineMessage>
       <InlineMessage>{actionError}</InlineMessage>
       {dataError && <InlineMessage>{dataError}</InlineMessage>}
-      {!readOnly && !data.clientes.length && <InlineMessage tone="info">Para registrar un vehículo, primero crea un cliente.</InlineMessage>}
+      {!readOnly && !data.clientes.some((client) => !client.archived_at && client.estado === 'Activo') && <InlineMessage tone="info">Para registrar un vehículo, primero crea un cliente activo.</InlineMessage>}
 
       <section className="card space-y-4">
         <div className="relative max-w-xl">
@@ -113,8 +113,8 @@ export default function Vehiculos() {
                   <td className="py-4 pr-4"><StatusBadge value={vehicle.estado} /></td>
                   <td className="py-4 text-right"><div className="flex justify-end gap-2">
                     {!readOnly && <button onClick={() => openEdit(vehicle)} className="btn-secondary inline-flex items-center gap-1 px-3 py-1.5 text-xs"><Pencil size={14} /> Editar</button>}
-                    {isAdmin && <DeleteButton label={`el vehículo ${vehicle.patente}`}
-                      onDelete={async () => { await deleteRecord('vehiculos', vehicle.id); setNotice('El vehículo se eliminó correctamente.'); }}
+                    {isAdmin && <ArchiveButton label={`el vehículo ${vehicle.patente}`}
+                      onArchive={async () => { await archiveRecord('vehiculos', vehicle.id); setNotice('El vehículo se archivó. Puedes restaurarlo desde Papelera.'); }}
                       onError={setActionError} />}
                   </div></td>
                 </tr>;
@@ -132,7 +132,7 @@ export default function Vehiculos() {
             <Field label="Cliente asociado">
               <select className={inputClass} required value={form.clienteId} onChange={(event) => setForm({ ...form, clienteId: event.target.value })}>
                 <option value="">Selecciona un cliente</option>
-                {data.clientes.filter((client) => client.estado === 'Activo' || client.id === Number(form.clienteId)).map((client) => <option key={client.id} value={client.id}>{client.nombre} · {client.rut}</option>)}
+                {data.clientes.filter((client) => (!client.archived_at && client.estado === 'Activo') || client.id === Number(form.clienteId)).map((client) => <option key={client.id} value={client.id}>{client.nombre} · {client.rut}{client.archived_at ? ' (Archivado)' : ''}</option>)}
               </select>
             </Field>
             <Field label="Patente / placa"><input className={inputClass} required maxLength={20} value={form.patente} onChange={(event) => setForm({ ...form, patente: event.target.value.toUpperCase() })} /></Field>
@@ -162,7 +162,7 @@ export default function Vehiculos() {
 
           <div className="flex flex-col-reverse justify-end gap-2 border-t pt-4 sm:flex-row">
             <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">Cancelar</button>
-            <button type="submit" disabled={saving || !data.clientes.length} className="btn-primary">{saving ? 'Guardando...' : 'Guardar vehículo'}</button>
+            <button type="submit" disabled={saving || (!form.id && !data.clientes.some((client) => !client.archived_at && client.estado === 'Activo'))} className="btn-primary">{saving ? 'Guardando...' : 'Guardar vehículo'}</button>
           </div>
         </form>
       </Modal>}

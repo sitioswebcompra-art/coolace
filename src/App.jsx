@@ -17,6 +17,7 @@ const Reportes = lazy(() => import('./pages/Reportes'));
 const Configuracion = lazy(() => import('./pages/Configuracion'));
 const Usuarios = lazy(() => import('./pages/Usuarios'));
 const Perfil = lazy(() => import('./pages/Perfil'));
+const Papelera = lazy(() => import('./pages/Papelera'));
 const AccesoDenegado = lazy(() => import('./pages/AccesoDenegado'));
 
 const allowedRoles = {
@@ -63,6 +64,7 @@ export default function App() {
           <Route path="reportes" element={<ProtectedRoute roles={allowedRoles.reportes}><Reportes /></ProtectedRoute>} />
           <Route path="configuracion" element={<ProtectedRoute roles={allowedRoles.configuracion}><Configuracion /></ProtectedRoute>} />
           <Route path="usuarios" element={<ProtectedRoute roles={allowedRoles.usuarios}><Usuarios /></ProtectedRoute>} />
+          <Route path="papelera" element={<ProtectedRoute roles={allowedRoles.configuracion}><Papelera /></ProtectedRoute>} />
           <Route path="perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
           <Route path="acceso-denegado" element={<AccesoDenegado />} />
           <Route path="*" element={<Navigate to="/" replace />} />

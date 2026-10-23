@@ -411,6 +411,55 @@ create table if not exists public.cotizacion_items (
   created_at timestamptz not null default now()
 );
 
+alter table public.clientes add column if not exists archived_at timestamptz;
+alter table public.vehiculos add column if not exists archived_at timestamptz;
+alter table public.ordenes add column if not exists archived_at timestamptz;
+alter table public.informes_tecnicos add column if not exists archived_at timestamptz;
+alter table public.cotizaciones add column if not exists archived_at timestamptz;
+alter table public.tecnicos add column if not exists archived_at timestamptz;
+alter table public.repuestos add column if not exists archived_at timestamptz;
+
+create or replace function public.enforce_archive_admin_only()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if public.current_app_role() is distinct from 'Administrador' then
+    if tg_op = 'INSERT' then
+      if new.archived_at is not null then
+        raise exception 'Solo un administrador puede archivar o restaurar registros.';
+      end if;
+    elsif new.archived_at is distinct from old.archived_at then
+      raise exception 'Solo un administrador puede archivar o restaurar registros.';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists clientes_archive_admin_only on public.clientes;
+create trigger clientes_archive_admin_only before insert or update on public.clientes
+  for each row execute procedure public.enforce_archive_admin_only();
+drop trigger if exists vehiculos_archive_admin_only on public.vehiculos;
+create trigger vehiculos_archive_admin_only before insert or update on public.vehiculos
+  for each row execute procedure public.enforce_archive_admin_only();
+drop trigger if exists ordenes_archive_admin_only on public.ordenes;
+create trigger ordenes_archive_admin_only before insert or update on public.ordenes
+  for each row execute procedure public.enforce_archive_admin_only();
+drop trigger if exists informes_tecnicos_archive_admin_only on public.informes_tecnicos;
+create trigger informes_tecnicos_archive_admin_only before insert or update on public.informes_tecnicos
+  for each row execute procedure public.enforce_archive_admin_only();
+drop trigger if exists cotizaciones_archive_admin_only on public.cotizaciones;
+create trigger cotizaciones_archive_admin_only before insert or update on public.cotizaciones
+  for each row execute procedure public.enforce_archive_admin_only();
+drop trigger if exists tecnicos_archive_admin_only on public.tecnicos;
+create trigger tecnicos_archive_admin_only before insert or update on public.tecnicos
+  for each row execute procedure public.enforce_archive_admin_only();
+drop trigger if exists repuestos_archive_admin_only on public.repuestos;
+create trigger repuestos_archive_admin_only before insert or update on public.repuestos
+  for each row execute procedure public.enforce_archive_admin_only();
+
 alter table public.cotizacion_items
   drop constraint if exists cotizacion_items_cotizacion_id_fkey,
   drop constraint if exists cotizacion_items_repuesto_id_fkey;

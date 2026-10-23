@@ -3,7 +3,7 @@ import { FileText, Plus, Printer, Send, ThumbsDown, ThumbsUp, Wrench } from 'luc
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { supabase } from '../supabase';
-import { DeleteButton, EmptyState, Field, InlineMessage, Modal, PageTitle, StatusBadge, formatDate, formatMoney, inputClass } from '../components/ui';
+import { ArchiveButton, EmptyState, Field, InlineMessage, Modal, PageTitle, StatusBadge, formatDate, formatMoney, inputClass } from '../components/ui';
 import ExportActions from '../components/ExportActions';
 
 const blankLine = { repuesto_id: '', descripcion: '', cantidad: '1', precio_unitario: '0', impuesto: '19', tipo: 'Repuesto' };
@@ -15,7 +15,7 @@ const datePlusDays = (days) => {
 
 export default function Cotizaciones() {
   const { user } = useAuth();
-  const { data, saveCotizacion, deleteRecord, refreshData, convertQuoteToOrder, isLoaded, dataError } = useData();
+  const { data, saveCotizacion, archiveRecord, refreshData, convertQuoteToOrder, isLoaded, dataError } = useData();
   const isClient = user?.role === 'Cliente';
   const isAdmin = user?.role === 'Administrador';
   const canConvertQuote = ['Administrador', 'Supervisor'].includes(user?.role);
@@ -35,11 +35,11 @@ export default function Cotizaciones() {
     descripcion: '', lines: [{ ...blankLine }],
   });
 
-  const sorted = useMemo(() => [...data.cotizaciones].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), [data.cotizaciones]);
+  const sorted = useMemo(() => data.cotizaciones.filter((quote) => !quote.archived_at).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), [data.cotizaciones]);
 
   const openNew = (orderId = '') => {
     const order = data.ordenes.find((item) => item.id === orderId);
-    const report = order && data.informes.find((item) => item.orden_id === order.id);
+    const report = order && data.informes.find((item) => !item.archived_at && item.orden_id === order.id);
     const importedLines = [
       ...(report?.repuestos || []).map((item) => ({ ...item, tipo: 'Repuesto' })),
       ...(report?.materiales || []).map((item) => ({ ...item, tipo: 'Material' })),
@@ -274,7 +274,7 @@ export default function Cotizaciones() {
       Descuento: quote.descuento, Impuestos: quote.impuestos, 'Total neto': quote.total_neto,
       Total: quote.total, 'Condiciones de pago': quote.condiciones_pago,
       Garantía: quote.garantia, Observaciones: quote.observaciones,
-    }))} />{!isClient && <button onClick={() => openNew()} disabled={!data.ordenes.length} className="btn-primary flex items-center gap-2"><Plus size={18} /> Nueva cotización</button>}</>} />
+    }))} />{!isClient && <button onClick={() => openNew()} disabled={!data.ordenes.some((order) => !order.archived_at)} className="btn-primary flex items-center gap-2"><Plus size={18} /> Nueva cotización</button>}</>} />
     {notice && <InlineMessage tone="success">{notice}</InlineMessage>}
     <InlineMessage>{actionError}</InlineMessage>
     {error && !showModal && <InlineMessage>{error}</InlineMessage>}
@@ -301,20 +301,20 @@ export default function Cotizaciones() {
             {!isClient && state === 'Enviada' && <button className="btn-secondary text-red-700" title="Rechazar" onClick={() => updateStatus(quote, 'Rechazada')}><ThumbsDown size={17} /></button>}
             {!isClient && state === 'Borrador' && <button className="btn-secondary" onClick={() => updateStatus(quote, 'Enviada')}>Marcar enviada</button>}
             {canConvertQuote && state === 'Aprobada' && <button className="btn-primary inline-flex items-center gap-1.5 py-2 text-sm" onClick={() => openConversion(quote)}><Wrench size={15} />Convertir</button>}
-            {isAdmin && <DeleteButton label={`la cotización ${quote.numero}`}
-              onDelete={async () => { await deleteRecord('cotizaciones', quote.id); setNotice(`La cotización ${quote.numero} se eliminó correctamente.`); }}
+            {isAdmin && <ArchiveButton label={`la cotización ${quote.numero}`}
+              onArchive={async () => { await archiveRecord('cotizaciones', quote.id); setNotice(`La cotización ${quote.numero} se archivó. Puedes restaurarla desde Papelera.`); }}
               onError={setActionError} />}
           </div>
         </article>;
       }) : <EmptyState title="Aún no hay cotizaciones" detail="Crea una cotización desde una orden de trabajo para asociar cliente, vehículo e informe." />}
     </section>
 
-    {!data.ordenes.length && <InlineMessage tone="info">Primero crea una orden de trabajo en Agenda.</InlineMessage>}
+    {!data.ordenes.some((order) => !order.archived_at) && <InlineMessage tone="info">Primero crea una orden de trabajo en Agenda.</InlineMessage>}
     {!isClient && <section className="card">
       <h3 className="mb-3 font-bold text-brand-dark">Crear desde informe</h3>
-      <div className="flex flex-wrap gap-2">{data.ordenes.filter((order) => data.informes.some((report) => report.orden_id === order.id)).map((order) =>
+      <div className="flex flex-wrap gap-2">{data.ordenes.filter((order) => !order.archived_at && data.informes.some((report) => !report.archived_at && report.orden_id === order.id)).map((order) =>
         <button key={order.id} onClick={() => openNew(order.id)} className="btn-secondary inline-flex items-center gap-2"><FileText size={15} />{order.id} · {order.servicio}</button>
-      )}{!data.ordenes.some((order) => data.informes.some((report) => report.orden_id === order.id)) && <p className="text-sm text-slate-500">Las órdenes con informe técnico aparecerán aquí.</p>}</div>
+      )}{!data.ordenes.some((order) => !order.archived_at && data.informes.some((report) => !report.archived_at && report.orden_id === order.id)) && <p className="text-sm text-slate-500">Las órdenes con informe técnico aparecerán aquí.</p>}</div>
     </section>}
 
     {showModal && <Modal title="Nueva cotización" onClose={() => setShowModal(false)} size="max-w-4xl">
@@ -323,7 +323,7 @@ export default function Cotizaciones() {
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Orden de trabajo"><select required className={inputClass} value={selectedOrder} onChange={(event) => setSelectedOrder(event.target.value)}>
             <option value="">Selecciona una orden</option>
-            {data.ordenes.map((order) => <option key={order.id} value={order.id}>{order.id} · {order.servicio} · {data.clientes.find((client) => client.id === order.clienteId)?.nombre}</option>)}
+            {data.ordenes.filter((order) => !order.archived_at).map((order) => <option key={order.id} value={order.id}>{order.id} · {order.servicio} · {data.clientes.find((client) => client.id === order.clienteId)?.nombre}</option>)}
           </select></Field>
           <Field label="Vencimiento"><input required className={inputClass} type="date" min={new Date().toISOString().slice(0, 10)} value={form.fecha_vencimiento} onChange={(event) => setForm({ ...form, fecha_vencimiento: event.target.value })} /></Field>
           <Field label="Descripción del trabajo"><textarea className={inputClass} rows={3} value={form.descripcion} onChange={(event) => setForm({ ...form, descripcion: event.target.value })} /></Field>
@@ -335,7 +335,7 @@ export default function Cotizaciones() {
             <Field label="Catálogo"><select className={inputClass} value={line.repuesto_id} onChange={(event) => {
               const item = data.repuestos.find((part) => part.id === Number(event.target.value));
               updateLine(index, item ? { repuesto_id: String(item.id), descripcion: item.nombre, precio_unitario: String(item.precio_venta), impuesto: String(item.impuesto) } : { repuesto_id: '' });
-            }}><option value="">Manual</option>{data.repuestos.map((part) => <option key={part.id} value={part.id}>{part.nombre}</option>)}</select></Field>
+            }}><option value="">Manual</option>{data.repuestos.filter((part) => !part.archived_at).map((part) => <option key={part.id} value={part.id}>{part.nombre}</option>)}</select></Field>
             <Field label="Descripción"><input className={inputClass} value={line.descripcion} onChange={(event) => updateLine(index, { descripcion: event.target.value })} /></Field>
             <Field label="Cantidad"><input className={inputClass} type="number" min="0.01" step="0.01" value={line.cantidad} onChange={(event) => updateLine(index, { cantidad: event.target.value })} /></Field>
             <Field label="Precio unitario"><input className={inputClass} type="number" min="0" value={line.precio_unitario} onChange={(event) => updateLine(index, { precio_unitario: event.target.value })} /></Field>
@@ -368,7 +368,7 @@ export default function Cotizaciones() {
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Fecha programada"><input required min={datePlusDays(0)} className={inputClass} type="date" value={conversionForm.fecha} onChange={(event) => setConversionForm({ ...conversionForm, fecha: event.target.value })} /></Field>
           <Field label="Hora"><input className={inputClass} type="time" value={conversionForm.hora_inicio} onChange={(event) => setConversionForm({ ...conversionForm, hora_inicio: event.target.value })} /></Field>
-          <Field label="Técnico asignado"><select className={inputClass} value={conversionForm.tecnico_id} onChange={(event) => setConversionForm({ ...conversionForm, tecnico_id: event.target.value })}><option value="">Sin asignar</option>{data.tecnicos.filter((technician) => technician.estado === 'Activo').map((technician) => <option key={technician.id} value={technician.id}>{technician.nombre}</option>)}</select></Field>
+          <Field label="Técnico asignado"><select className={inputClass} value={conversionForm.tecnico_id} onChange={(event) => setConversionForm({ ...conversionForm, tecnico_id: event.target.value })}><option value="">Sin asignar</option>{data.tecnicos.filter((technician) => !technician.archived_at && technician.estado === 'Activo').map((technician) => <option key={technician.id} value={technician.id}>{technician.nombre}</option>)}</select></Field>
           <Field label="Prioridad"><select className={inputClass} value={conversionForm.prioridad} onChange={(event) => setConversionForm({ ...conversionForm, prioridad: event.target.value })}><option>Baja</option><option>Normal</option><option>Alta</option><option>Urgente</option></select></Field>
           <Field label="Dirección del servicio"><input className={inputClass} value={conversionForm.direccion} onChange={(event) => setConversionForm({ ...conversionForm, direccion: event.target.value })} /></Field>
           <Field label="Zona"><input className={inputClass} value={conversionForm.zona} onChange={(event) => setConversionForm({ ...conversionForm, zona: event.target.value })} /></Field>

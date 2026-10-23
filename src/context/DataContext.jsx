@@ -19,7 +19,7 @@ const emptyData = {
   profiles: [],
 };
 
-const deletableRecords = {
+const archivableRecords = {
   clientes: { key: 'clientes', entity: 'cliente', idColumn: 'id' },
   vehiculos: { key: 'vehiculos', entity: 'vehículo', idColumn: 'id' },
   ordenes: { key: 'ordenes', entity: 'orden', idColumn: 'id' },
@@ -46,6 +46,9 @@ const getRelatedField = (error) => {
 const getErrorMessage = (error) => {
   if (error?.code === '42P01' || error?.code === 'PGRST205') {
     return 'Faltan tablas de la base de datos. Ejecuta database.sql en el SQL Editor del proyecto Supabase.';
+  }
+  if (error?.code === '42703') {
+    return 'Falta actualizar la estructura de la base de datos. Ejecuta database.sql en el SQL Editor del proyecto Supabase.';
   }
   if (error?.code === '42501' || error?.code === 'PGRST301') {
     return 'No tienes permisos para esta operación. Revisa la sesión y las políticas RLS de Supabase.';
@@ -314,27 +317,59 @@ export const DataProvider = ({ children }) => {
     setData((current) => ({ ...current, activity: [saved, ...(current.activity || [])].slice(0, 200) }));
   };
 
-  const deleteRecord = async (table, id) => {
-    const target = deletableRecords[table];
-    if (!target) throw new Error('Este tipo de registro no se puede eliminar.');
-    if (user?.role !== 'Administrador') throw new Error('Solo un administrador puede eliminar registros.');
+  const archiveRecord = async (table, id) => {
+    const target = archivableRecords[table];
+    if (!target) throw new Error('Este tipo de registro no se puede archivar.');
+    if (user?.role !== 'Administrador') throw new Error('Solo un administrador puede archivar registros.');
     if (!supabase) throw new Error('Supabase no está configurado.');
 
-    const { error } = await supabase.from(table).delete().eq(target.idColumn, id).select(target.idColumn).single();
+    const { data: updated, error } = await supabase.from(table)
+      .update({ archived_at: new Date().toISOString() })
+      .eq(target.idColumn, id)
+      .select()
+      .single();
     if (error) {
-      console.error(`Error eliminando registro de ${table}:`, error);
+      console.error(`Error archivando registro de ${table}:`, error);
       throw new Error(getErrorMessage(error));
     }
 
     setData((current) => ({
       ...current,
-      [target.key]: current[target.key].filter((record) => record.id !== id),
+      [target.key]: current[target.key].map((record) => record.id === id ? updated : record),
     }));
     await logActivity({
       entidad: target.entity,
       entidad_id: String(id),
-      accion: 'eliminado',
-      descripcion: `Se eliminó el registro ${id} (${target.entity}).`,
+      accion: 'archivado',
+      descripcion: `Se archivó el registro ${id} (${target.entity}).`,
+    });
+  };
+
+  const restoreRecord = async (table, id) => {
+    const target = archivableRecords[table];
+    if (!target) throw new Error('Este tipo de registro no se puede restaurar.');
+    if (user?.role !== 'Administrador') throw new Error('Solo un administrador puede restaurar registros.');
+    if (!supabase) throw new Error('Supabase no está configurado.');
+
+    const { data: updated, error } = await supabase.from(table)
+      .update({ archived_at: null })
+      .eq(target.idColumn, id)
+      .select()
+      .single();
+    if (error) {
+      console.error(`Error restaurando registro de ${table}:`, error);
+      throw new Error(getErrorMessage(error));
+    }
+
+    setData((current) => ({
+      ...current,
+      [target.key]: current[target.key].map((record) => record.id === id ? updated : record),
+    }));
+    await logActivity({
+      entidad: target.entity,
+      entidad_id: String(id),
+      accion: 'restaurado',
+      descripcion: `Se restauró el registro ${id} (${target.entity}).`,
     });
   };
 
@@ -387,7 +422,7 @@ export const DataProvider = ({ children }) => {
     <DataContext.Provider value={{
       data, isLoaded, dataError: [dataError, realtimeError].filter(Boolean).join(' '), refreshData, saveCliente, saveVehiculo, saveTecnico,
       saveRepuesto, saveInforme, saveCotizacion, addOrden, updateOrdenEstado, updateOrden, convertQuoteToOrder,
-      logActivity, deleteRecord, markNotificationRead, saveCompanySettings, saveUserAccess,
+      logActivity, archiveRecord, restoreRecord, markNotificationRead, saveCompanySettings, saveUserAccess,
     }}>
       {children}
     </DataContext.Provider>

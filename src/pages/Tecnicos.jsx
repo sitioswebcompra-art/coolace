@@ -2,14 +2,14 @@ import { useMemo, useState } from 'react';
 import { Pencil, Plus, Search, UserRound, Wrench } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
-import { DeleteButton, EmptyState, Field, InlineMessage, Modal, PageTitle, StatusBadge, inputClass } from '../components/ui';
+import { ArchiveButton, EmptyState, Field, InlineMessage, Modal, PageTitle, StatusBadge, inputClass } from '../components/ui';
 import ExportActions from '../components/ExportActions';
 
 const blank = { nombre: '', telefono: '', email: '', especialidad: '', zona: '', estado: 'Activo' };
 
 export default function Tecnicos() {
   const { user } = useAuth();
-  const { data, saveTecnico, deleteRecord, isLoaded, dataError } = useData();
+  const { data, saveTecnico, archiveRecord, isLoaded, dataError } = useData();
   const isAdmin = user?.role === 'Administrador';
   const [query, setQuery] = useState('');
   const [form, setForm] = useState(blank);
@@ -18,7 +18,7 @@ export default function Tecnicos() {
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState('');
   const [notice, setNotice] = useState('');
-  const filtered = useMemo(() => data.tecnicos.filter((person) =>
+  const filtered = useMemo(() => data.tecnicos.filter((person) => !person.archived_at).filter((person) =>
     [person.nombre, person.telefono, person.email, person.especialidad, person.zona]
       .some((value) => value?.toLowerCase().includes(query.trim().toLowerCase()))
   ), [data.tecnicos, query]);
@@ -43,7 +43,7 @@ export default function Tecnicos() {
       actions={<><ExportActions title="Técnicos y cuadrillas" rows={filtered.map((technician) => ({
         Técnico: technician.nombre, Teléfono: technician.telefono, Correo: technician.email,
         Especialidad: technician.especialidad, Zona: technician.zona, Estado: technician.estado,
-        'Trabajos activos': data.ordenes.filter((order) => Number(order.tecnico_id) === technician.id &&
+        'Trabajos activos': data.ordenes.filter((order) => !order.archived_at && Number(order.tecnico_id) === technician.id &&
           !['Completado', 'Cancelado'].includes(order.estado)).length,
       }))} /><button onClick={() => { setForm(blank); setError(''); setOpen(true); }} className="btn-primary flex items-center gap-2"><Plus size={18} /> Nuevo técnico</button></>} />
     <InlineMessage>{actionError}</InlineMessage>
@@ -55,7 +55,7 @@ export default function Tecnicos() {
     </div>
     {filtered.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {filtered.map((technician) => {
-        const assigned = data.ordenes.filter((order) => Number(order.tecnico_id) === technician.id && !['Completado', 'Cancelado'].includes(order.estado)).length;
+        const assigned = data.ordenes.filter((order) => !order.archived_at && Number(order.tecnico_id) === technician.id && !['Completado', 'Cancelado'].includes(order.estado)).length;
         return <article key={technician.id} className="card">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3"><span className="rounded-full bg-blue-50 p-3 text-brand-blue"><UserRound size={22} /></span>
@@ -63,8 +63,8 @@ export default function Tecnicos() {
             </div>
             <div className="flex items-center gap-1">
               <button title="Editar técnico" className="rounded p-2 text-slate-500 hover:bg-slate-100" onClick={() => { setForm({ ...blank, ...technician }); setError(''); setOpen(true); }}><Pencil size={17} /></button>
-              {isAdmin && <DeleteButton label={`al técnico ${technician.nombre}`}
-                onDelete={async () => { await deleteRecord('tecnicos', technician.id); setNotice('El técnico se eliminó correctamente.'); }}
+              {isAdmin && <ArchiveButton label={`al técnico ${technician.nombre}`}
+                onArchive={async () => { await archiveRecord('tecnicos', technician.id); setNotice('El técnico se archivó. Puedes restaurarlo desde Papelera.'); }}
                 onError={setActionError} />}
             </div>
           </div>

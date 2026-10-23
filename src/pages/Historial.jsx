@@ -20,7 +20,7 @@ export default function Historial() {
       const client = data.clientes.find((item) => item.id === order.clienteId);
       events.push({
         key: `orden-${order.id}`, date: order.updated_at || order.created_at || order.fecha,
-        kind: 'Orden', entity: order.id, status: order.estado, service: order.servicio,
+        kind: 'Orden', entity: order.id, status: order.archived_at ? 'Archivado' : order.estado, service: order.servicio,
         client: client?.nombre || '', plate: vehicle?.patente || '', technician: order.tecnico || '',
         detail: `Orden ${order.id}: ${order.servicio}`,
       });
@@ -31,7 +31,7 @@ export default function Historial() {
       const client = data.clientes.find((item) => item.id === order?.clienteId);
       events.push({
         key: `informe-${report.id}`, date: report.updated_at || report.created_at,
-        kind: 'Informe', entity: report.orden_id, status: report.estado, service: order?.servicio || '',
+        kind: 'Informe', entity: report.orden_id, status: report.archived_at ? 'Archivado' : report.estado, service: order?.servicio || '',
         client: client?.nombre || '', plate: vehicle?.patente || '', technician: order?.tecnico || '',
         detail: report.diagnostico || `Informe técnico ${report.estado?.toLowerCase() || ''}`,
       });
@@ -42,7 +42,7 @@ export default function Historial() {
       const order = data.ordenes.find((item) => item.id === quote.orden_id);
       events.push({
         key: `quote-${quote.id}`, date: quote.updated_at || quote.created_at,
-        kind: 'Cotización', entity: quote.numero, status: quote.estado, service: order?.servicio || '',
+        kind: 'Cotización', entity: quote.numero, status: quote.archived_at ? 'Archivado' : quote.estado, service: order?.servicio || '',
         client: client?.nombre || '', plate: vehicle?.patente || '', technician: order?.tecnico || '',
         detail: `Cotización ${quote.numero} · ${quote.total || 0}`,
       });

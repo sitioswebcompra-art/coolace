@@ -8,15 +8,15 @@ export default function Reportes() {
   const { data, isLoaded, dataError } = useData();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const filteredOrders = useMemo(() => data.ordenes.filter((order) => (!from || order.fecha >= from) && (!to || order.fecha <= to)), [data.ordenes, from, to]);
+  const filteredOrders = useMemo(() => data.ordenes.filter((order) => !order.archived_at && (!from || order.fecha >= from) && (!to || order.fecha <= to)), [data.ordenes, from, to]);
   const includedIds = new Set(filteredOrders.map((order) => order.id));
-  const quotes = data.cotizaciones.filter((quote) => includedIds.has(quote.orden_id));
+  const quotes = data.cotizaciones.filter((quote) => !quote.archived_at && includedIds.has(quote.orden_id));
   const approved = quotes.filter((quote) => ['Aprobada', 'Convertida'].includes(quote.estado));
   const conversion = quotes.length ? Math.round(approved.length / quotes.length * 100) : 0;
   const revenue = approved.reduce((sum, quote) => sum + Number(quote.total || 0), 0);
-  const avgMinutes = data.informes.filter((report) => includedIds.has(report.orden_id) && report.llegada && report.termino)
+  const avgMinutes = data.informes.filter((report) => !report.archived_at && includedIds.has(report.orden_id) && report.llegada && report.termino)
     .reduce((sum, report) => sum + (new Date(report.termino) - new Date(report.llegada)) / 60000, 0);
-  const avgCount = data.informes.filter((report) => includedIds.has(report.orden_id) && report.llegada && report.termino).length;
+  const avgCount = data.informes.filter((report) => !report.archived_at && includedIds.has(report.orden_id) && report.llegada && report.termino).length;
   const averageTime = avgCount ? Math.round(avgMinutes / avgCount) : 0;
 
   const byTechnician = Object.entries(filteredOrders.reduce((counts, order) => {
@@ -28,10 +28,10 @@ export default function Reportes() {
     counts[order.servicio] = (counts[order.servicio] || 0) + 1;
     return counts;
   }, {})).sort((a, b) => b[1] - a[1]);
-  const failureCounts = Object.entries(data.informes.filter((report) => includedIds.has(report.orden_id)).flatMap((report) => report.fallas || [])
+  const failureCounts = Object.entries(data.informes.filter((report) => !report.archived_at && includedIds.has(report.orden_id)).flatMap((report) => report.fallas || [])
     .reduce((counts, failure) => { counts[failure] = (counts[failure] || 0) + 1; return counts; }, {}))
     .sort((a, b) => b[1] - a[1]).slice(0, 6);
-  const upcomingMaintenance = data.vehiculos.filter((vehicle) => vehicle.proximo_mantenimiento && vehicle.proximo_mantenimiento >= new Date().toISOString().slice(0, 10))
+  const upcomingMaintenance = data.vehiculos.filter((vehicle) => !vehicle.archived_at && vehicle.proximo_mantenimiento && vehicle.proximo_mantenimiento >= new Date().toISOString().slice(0, 10))
     .sort((a, b) => a.proximo_mantenimiento.localeCompare(b.proximo_mantenimiento)).slice(0, 8);
 
   if (!isLoaded && !dataError) return <p className="text-slate-500">Calculando indicadores...</p>;

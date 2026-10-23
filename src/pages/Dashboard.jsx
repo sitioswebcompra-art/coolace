@@ -15,18 +15,18 @@ export default function Dashboard() {
 
   if (!isLoaded && !dataError) return <p className="text-slate-500">Cargando datos del sistema...</p>;
 
-  const activeOrders = data.ordenes.filter((order) => !['Completado', 'Cancelado'].includes(order.estado));
-  const todayOrders = data.ordenes.filter((order) => order.fecha === today);
-  const pendingQuotes = data.cotizaciones.filter((quote) => ['Borrador', 'Enviada', 'Vista'].includes(quote.estado));
+  const activeOrders = data.ordenes.filter((order) => !order.archived_at && !['Completado', 'Cancelado'].includes(order.estado));
+  const todayOrders = data.ordenes.filter((order) => !order.archived_at && order.fecha === today);
+  const pendingQuotes = data.cotizaciones.filter((quote) => !quote.archived_at && ['Borrador', 'Enviada', 'Vista'].includes(quote.estado));
   const cards = [
     { label: 'Trabajos pendientes', value: activeOrders.filter((order) => ['Pendiente', 'Asignado', 'Confirmado'].includes(order.estado)).length, icon: Clock3, color: 'text-amber-600 bg-amber-50', link: '/agenda' },
     { label: 'Agenda de hoy', value: todayOrders.length, icon: CalendarDays, color: 'text-blue-600 bg-blue-50', link: '/agenda' },
-    { label: 'En proceso', value: data.ordenes.filter((order) => order.estado === 'En proceso').length, icon: Wrench, color: 'text-orange-600 bg-orange-50', link: '/agenda' },
+    { label: 'En proceso', value: data.ordenes.filter((order) => !order.archived_at && order.estado === 'En proceso').length, icon: Wrench, color: 'text-orange-600 bg-orange-50', link: '/agenda' },
     { label: 'Cotizaciones por responder', value: pendingQuotes.length, icon: FileText, color: 'text-violet-600 bg-violet-50', link: '/cotizaciones' },
-    { label: 'Clientes activos', value: data.clientes.filter((client) => client.estado === 'Activo').length, icon: Users, color: 'text-cyan-700 bg-cyan-50', link: '/clientes' },
-    { label: 'Vehículos registrados', value: data.vehiculos.length, icon: Truck, color: 'text-indigo-700 bg-indigo-50', link: '/vehiculos' },
-    { label: 'Trabajos completados', value: data.ordenes.filter((order) => order.estado === 'Completado').length, icon: CheckCircle2, color: 'text-green-700 bg-green-50', link: '/historial' },
-    { label: 'Informes técnicos', value: data.informes.length, icon: FileText, color: 'text-slate-700 bg-slate-100', link: '/informes' },
+    { label: 'Clientes activos', value: data.clientes.filter((client) => !client.archived_at && client.estado === 'Activo').length, icon: Users, color: 'text-cyan-700 bg-cyan-50', link: '/clientes' },
+    { label: 'Vehículos registrados', value: data.vehiculos.filter((vehicle) => !vehicle.archived_at).length, icon: Truck, color: 'text-indigo-700 bg-indigo-50', link: '/vehiculos' },
+    { label: 'Trabajos completados', value: data.ordenes.filter((order) => !order.archived_at && order.estado === 'Completado').length, icon: CheckCircle2, color: 'text-green-700 bg-green-50', link: '/historial' },
+    { label: 'Informes técnicos', value: data.informes.filter((report) => !report.archived_at).length, icon: FileText, color: 'text-slate-700 bg-slate-100', link: '/informes' },
   ].filter((card) => {
     if (isClient) return ['Vehículos registrados', 'Cotizaciones por responder', 'Trabajos completados'].includes(card.label);
     if (isTechnician) return !['Clientes activos', 'Cotizaciones por responder'].includes(card.label);
@@ -47,14 +47,14 @@ export default function Dashboard() {
       <PageTitle title="Panel de operaciones" description={`Hola ${user?.name || ''}. Resumen actualizado de tu operación.`}
         actions={<><ExportActions title="Panel de operaciones" summary={[
           { Indicador: 'Fecha de generación', Valor: today },
-          { Indicador: 'Clientes activos', Valor: data.clientes.filter((client) => client.estado === 'Activo').length },
-          { Indicador: 'Vehículos registrados', Valor: data.vehiculos.length },
-          { Indicador: 'Órdenes registradas', Valor: data.ordenes.length },
+          { Indicador: 'Clientes activos', Valor: data.clientes.filter((client) => !client.archived_at && client.estado === 'Activo').length },
+          { Indicador: 'Vehículos registrados', Valor: data.vehiculos.filter((vehicle) => !vehicle.archived_at).length },
+          { Indicador: 'Órdenes registradas', Valor: data.ordenes.filter((order) => !order.archived_at).length },
           { Indicador: 'Órdenes programadas para hoy', Valor: todayOrders.length },
           { Indicador: 'Órdenes activas', Valor: activeOrders.length },
           { Indicador: 'Cotizaciones por responder', Valor: pendingQuotes.length },
-          { Indicador: 'Informes técnicos', Valor: data.informes.length },
-        ]} rows={data.ordenes.map((order) => ({
+          { Indicador: 'Informes técnicos', Valor: data.informes.filter((report) => !report.archived_at).length },
+        ]} rows={data.ordenes.filter((order) => !order.archived_at).map((order) => ({
           Orden: order.id, Fecha: order.fecha, Servicio: order.servicio, Estado: order.estado,
           Cliente: clientName(order.clienteId),
           Patente: data.vehiculos.find((vehicle) => vehicle.id === order.vehiculoId)?.patente || '',
@@ -93,8 +93,8 @@ export default function Dashboard() {
             <div><h3 className="font-bold text-brand-dark">Órdenes recientes</h3><p className="text-sm text-slate-500">Últimos movimientos</p></div>
             <Link to="/historial" className="text-sm font-semibold text-brand-blue">Historial</Link>
           </div>
-          {data.ordenes.length ? <div className="space-y-3">
-            {data.ordenes.slice(0, 5).map((order) => <div key={order.id} className="flex items-start justify-between gap-3 rounded-lg bg-slate-50 p-3">
+          {data.ordenes.some((order) => !order.archived_at) ? <div className="space-y-3">
+            {data.ordenes.filter((order) => !order.archived_at).slice(0, 5).map((order) => <div key={order.id} className="flex items-start justify-between gap-3 rounded-lg bg-slate-50 p-3">
               <div><p className="font-semibold text-brand-blue">{order.id}</p><p className="text-sm text-slate-600">{order.servicio} · {clientName(order.clienteId)}</p></div>
               <StatusBadge value={order.estado} />
             </div>)}

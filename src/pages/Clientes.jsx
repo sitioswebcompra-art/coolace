@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Pencil, Plus, Search, Users } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
-import { DeleteButton, EmptyState, Field, InlineMessage, Modal, PageTitle, StatusBadge, inputClass } from '../components/ui';
+import { ArchiveButton, EmptyState, Field, InlineMessage, Modal, PageTitle, StatusBadge, inputClass } from '../components/ui';
 import ExportActions from '../components/ExportActions';
 
 const blankClient = {
@@ -12,7 +12,7 @@ const blankClient = {
 
 export default function Clientes() {
   const { user } = useAuth();
-  const { data, saveCliente, deleteRecord, isLoaded, dataError } = useData();
+  const { data, saveCliente, archiveRecord, isLoaded, dataError } = useData();
   const isAdmin = user?.role === 'Administrador';
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -22,7 +22,7 @@ export default function Clientes() {
   const [notice, setNotice] = useState('');
   const [actionError, setActionError] = useState('');
 
-  const filtered = useMemo(() => data.clientes.filter((client) => {
+  const filtered = useMemo(() => data.clientes.filter((client) => !client.archived_at).filter((client) => {
     const query = search.trim().toLowerCase();
     return !query || [client.nombre, client.rut, client.contacto, client.telefono, client.email]
       .some((value) => value?.toLowerCase().includes(query));
@@ -72,7 +72,7 @@ export default function Clientes() {
         Cliente: client.nombre, Tipo: client.tipo, RUT: client.rut, Contacto: client.contacto,
         Teléfono: client.telefono, Correo: client.email, Dirección: client.direccion,
         Comuna: client.comuna, Ciudad: client.ciudad,
-        Vehículos: data.vehiculos.filter((vehicle) => vehicle.clienteId === client.id).length,
+        Vehículos: data.vehiculos.filter((vehicle) => vehicle.clienteId === client.id && !vehicle.archived_at).length,
         Estado: client.estado,
       }))} /><button onClick={openCreate} className="btn-primary flex items-center gap-2"><Plus size={18} /> Nuevo cliente</button></>} />
       <InlineMessage tone="success">{notice}</InlineMessage>
@@ -96,13 +96,13 @@ export default function Clientes() {
                 <td className="py-4 pr-4 text-slate-600">{client.rut}</td>
                 <td className="py-4 pr-4 text-slate-600">{client.contacto || '—'}</td>
                 <td className="py-4 pr-4 text-slate-600">{client.telefono || '—'}<br /><span className="text-xs">{client.email || ''}</span></td>
-                <td className="py-4 pr-4">{data.vehiculos.filter((vehicle) => vehicle.clienteId === client.id).length}</td>
+                <td className="py-4 pr-4">{data.vehiculos.filter((vehicle) => vehicle.clienteId === client.id && !vehicle.archived_at).length}</td>
                 <td className="py-4 pr-4"><StatusBadge value={client.estado} /></td>
                 <td className="py-4 text-right">
                   <div className="flex justify-end gap-2">
                     <button onClick={() => openEdit(client)} className="btn-secondary inline-flex items-center gap-1 px-3 py-1.5 text-xs"><Pencil size={14} /> Editar</button>
-                    {isAdmin && <DeleteButton label={`al cliente ${client.nombre}`}
-                      onDelete={async () => { await deleteRecord('clientes', client.id); setNotice('El cliente se eliminó correctamente.'); }}
+                    {isAdmin && <ArchiveButton label={`al cliente ${client.nombre}`}
+                      onArchive={async () => { await archiveRecord('clientes', client.id); setNotice('El cliente se archivó. Puedes restaurarlo desde Papelera.'); }}
                       onError={setActionError} />}
                   </div>
                 </td>

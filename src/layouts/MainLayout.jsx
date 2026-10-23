@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import {
   BarChart3, Bell, Building2, CalendarDays, ClipboardCheck, FileText, History,
-  LayoutDashboard, LogOut, Menu, Package, Truck, UserCircle, UserCog, Users, Wrench, X,
+  Archive, LayoutDashboard, LogOut, Menu, Package, Truck, UserCircle, UserCog, Users, Wrench, X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
@@ -21,6 +21,7 @@ const navigation = [
   { name: 'Reportes e indicadores', icon: BarChart3, path: '/reportes', roles: ['Administrador', 'Supervisor', 'Área administrativa'] },
   { name: 'Configuración', icon: Building2, path: '/configuracion', roles: ['Administrador'] },
   { name: 'Usuarios y roles', icon: UserCog, path: '/usuarios', roles: ['Administrador'] },
+  { name: 'Papelera', icon: Archive, path: '/papelera', roles: ['Administrador'] },
 ];
 
 export default function MainLayout() {

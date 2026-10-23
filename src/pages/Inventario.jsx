@@ -2,14 +2,14 @@ import { useMemo, useState } from 'react';
 import { PackagePlus, Pencil, Plus, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
-import { DeleteButton, EmptyState, Field, InlineMessage, Modal, PageTitle, StatusBadge, formatMoney, inputClass } from '../components/ui';
+import { ArchiveButton, EmptyState, Field, InlineMessage, Modal, PageTitle, StatusBadge, formatMoney, inputClass } from '../components/ui';
 import ExportActions from '../components/ExportActions';
 
 const blank = { codigo: '', nombre: '', categoria: '', marca: '', descripcion: '', precio_compra: 0, precio_venta: 0, impuesto: 19, stock: 0, unidad: 'unidad', estado: 'Activo', observaciones: '' };
 
 export default function Inventario() {
   const { user } = useAuth();
-  const { data, saveRepuesto, deleteRecord, isLoaded, dataError } = useData();
+  const { data, saveRepuesto, archiveRecord, isLoaded, dataError } = useData();
   const isAdmin = user?.role === 'Administrador';
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -18,7 +18,7 @@ export default function Inventario() {
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState('');
   const [notice, setNotice] = useState('');
-  const filtered = useMemo(() => data.repuestos.filter((item) =>
+  const filtered = useMemo(() => data.repuestos.filter((item) => !item.archived_at).filter((item) =>
     [item.codigo, item.nombre, item.categoria, item.marca].some((value) => value?.toLowerCase().includes(query.trim().toLowerCase()))
   ), [data.repuestos, query]);
 
@@ -73,8 +73,8 @@ export default function Inventario() {
           <td className="py-4 pr-3"><StatusBadge value={item.estado} /></td>
           <td className="py-4 text-right"><div className="flex justify-end gap-2">
             <button className="btn-secondary inline-flex items-center gap-1 px-3 py-1.5 text-xs" onClick={() => { setForm({ ...blank, ...item }); setError(''); setOpen(true); }}><Pencil size={14} />Editar</button>
-            {isAdmin && <DeleteButton label={`el repuesto ${item.nombre}`}
-              onDelete={async () => { await deleteRecord('repuestos', item.id); setNotice('El repuesto se eliminó correctamente.'); }}
+            {isAdmin && <ArchiveButton label={`el repuesto ${item.nombre}`}
+              onArchive={async () => { await archiveRecord('repuestos', item.id); setNotice('El repuesto se archivó. Puedes restaurarlo desde Papelera.'); }}
               onError={setActionError} />}
           </div></td>
         </tr>)}</tbody>

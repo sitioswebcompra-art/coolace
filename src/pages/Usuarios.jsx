@@ -85,8 +85,9 @@ export default function Usuarios() {
         const draft = drafts[profile.id] || profileDraft(profile, data.tecnicos);
         const isSelf = profile.id === user?.id;
         const availableTechnicians = data.tecnicos.filter((technician) =>
-          technician.estado === 'Activo' &&
-          (!technician.user_id || technician.user_id === profile.id || technician.id === Number(draft.tecnicoId))
+          (technician.archived_at && technician.id === Number(draft.tecnicoId)) ||
+          (!technician.archived_at && technician.estado === 'Activo' &&
+            (!technician.user_id || technician.user_id === profile.id || technician.id === Number(draft.tecnicoId)))
         );
 
         return <article key={profile.id} className="card space-y-5">
@@ -130,7 +131,7 @@ export default function Usuarios() {
                 onChange={(event) => updateDraft(profile.id, { clienteId: event.target.value })}
               >
                 <option value="">Selecciona un cliente</option>
-                {data.clientes.map((client) => <option key={client.id} value={client.id}>{client.nombre} · {client.rut}</option>)}
+                {data.clientes.filter((client) => !client.archived_at || client.id === Number(draft.clienteId)).map((client) => <option key={client.id} value={client.id}>{client.nombre} · {client.rut}{client.archived_at ? ' (Archivado)' : ''}</option>)}
               </select>
             </Field>}
 
@@ -142,7 +143,7 @@ export default function Usuarios() {
                 onChange={(event) => updateDraft(profile.id, { tecnicoId: event.target.value })}
               >
                 <option value="">Selecciona un técnico</option>
-                {availableTechnicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.nombre} · {technician.zona || 'Sin zona'}</option>)}
+                {availableTechnicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.nombre} · {technician.zona || 'Sin zona'}{technician.archived_at ? ' (Archivado)' : ''}</option>)}
               </select>
               {!availableTechnicians.length && <span className="text-xs text-amber-700">Crea primero el registro del técnico en el módulo Técnicos.</span>}
             </Field>}

@@ -29,6 +29,19 @@ const deletableRecords = {
   repuestos: { key: 'repuestos', entity: 'repuesto', idColumn: 'id' },
 };
 
+const getRelatedField = (error) => {
+  const referencingTable = error?.details?.match(/referenced from table "([^"]+)"/i)?.[1];
+  const constraint = error?.constraint;
+  if (!referencingTable || typeof constraint !== 'string') return null;
+
+  const prefix = `${referencingTable}_`;
+  const suffix = '_fkey';
+  if (!constraint.startsWith(prefix) || !constraint.endsWith(suffix)) return null;
+
+  const field = constraint.slice(prefix.length, -suffix.length);
+  return field ? `${referencingTable}.${field}` : null;
+};
+
 const getErrorMessage = (error) => {
   if (error?.code === '42P01' || error?.code === 'PGRST205') {
     return 'Faltan tablas de la base de datos. Ejecuta database.sql en el SQL Editor del proyecto Supabase.';
@@ -37,7 +50,9 @@ const getErrorMessage = (error) => {
     return 'No tienes permisos para esta operación. Revisa la sesión y las políticas RLS de Supabase.';
   }
   if (error?.code === '23503') {
-    return 'No se puede eliminar este registro porque tiene datos relacionados. Elimina o reasigna esos registros primero.';
+    const relatedField = getRelatedField(error);
+    const fieldMessage = relatedField ? ` Campo relacionado: ${relatedField}.` : '';
+    return `No se puede eliminar este registro porque tiene datos relacionados.${fieldMessage} Elimina o reasigna esos registros primero.`;
   }
   return error?.message || 'Ocurrió un error al comunicarse con Supabase.';
 };

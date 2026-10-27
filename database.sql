@@ -782,6 +782,13 @@ create index if not exists idx_informes_orden on public.informes_tecnicos (orden
 create index if not exists idx_cotizaciones_cliente on public.cotizaciones ("clienteId");
 create index if not exists idx_notificaciones_user on public.notificaciones (user_id, leida);
 create index if not exists idx_activity_logs_cliente on public.activity_logs (cliente_id, created_at desc);
+create index if not exists idx_ordenes_tecnico on public.ordenes (tecnico_id);
+create index if not exists idx_ordenes_vehiculo on public.ordenes ("vehiculoId");
+create index if not exists idx_ordenes_created_at on public.ordenes (created_at desc);
+create index if not exists idx_informes_created_at on public.informes_tecnicos (created_at desc);
+create index if not exists idx_cotizaciones_created_at on public.cotizaciones (created_at desc);
+create index if not exists idx_notificaciones_user_created_at on public.notificaciones (user_id, created_at desc);
+create index if not exists idx_activity_logs_created_at on public.activity_logs (created_at desc);
 
 alter table public.profiles enable row level security;
 alter table public.clientes enable row level security;

@@ -175,7 +175,7 @@ export const DataProvider = ({ children }) => {
       ['cotizaciones', 'cotizaciones', () => supabase.from('cotizaciones').select('*').order('created_at', { ascending: false })],
       ['cotizacionItems', 'cotizacion_items', () => supabase.from('cotizacion_items').select('*').order('id')],
       ['repuestos', 'repuestos', () => supabase.from('repuestos').select('*').order('nombre')],
-      ['notificaciones', 'notificaciones', () => supabase.from('notificaciones').select('*').order('created_at', { ascending: false }).limit(50)],
+      ['notificaciones', 'notificaciones', () => supabase.from('notificaciones').select('id, titulo, mensaje, leida, enlace, created_at').order('created_at', { ascending: false }).limit(50)],
       ...(user.role === 'Administrador' ? [['profiles', 'profiles', () => supabase.from('profiles').select('id, name, email, role, cliente_id, activo, created_at').order('name')]] : []),
       ...(user.role === 'Cliente' ? [] : [['activity', 'activity_logs', () => supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(200)]]),
       ['companySettings', 'company_settings', () => supabase.from('company_settings').select('*').maybeSingle()],

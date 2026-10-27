@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
+import { DataProvider } from './context/DataContext';
 import MainLayout from './layouts/MainLayout';
 import Login from './pages/Login';
 
@@ -48,28 +49,30 @@ function LoadingPage() {
 export default function App() {
   const { user, passwordRecovery } = useAuth();
   return <Router>
-    <Suspense fallback={<LoadingPage />}>
-      <Routes>
-        <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
-        <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
-          <Route index element={passwordRecovery ? <Navigate to="/perfil" replace /> : <Dashboard />} />
-          <Route path="clientes" element={<ProtectedRoute roles={allowedRoles.clientes}><Clientes /></ProtectedRoute>} />
-          <Route path="vehiculos" element={<ProtectedRoute roles={allowedRoles.vehiculos}><Vehiculos /></ProtectedRoute>} />
-          <Route path="agenda" element={<ProtectedRoute roles={allowedRoles.agenda}><Agenda /></ProtectedRoute>} />
-          <Route path="tecnicos" element={<ProtectedRoute roles={allowedRoles.tecnicos}><Tecnicos /></ProtectedRoute>} />
-          <Route path="informes" element={<ProtectedRoute roles={allowedRoles.informes}><Informes /></ProtectedRoute>} />
-          <Route path="cotizaciones" element={<ProtectedRoute roles={allowedRoles.cotizaciones}><Cotizaciones /></ProtectedRoute>} />
-          <Route path="inventario" element={<ProtectedRoute roles={allowedRoles.inventario}><Inventario /></ProtectedRoute>} />
-          <Route path="historial" element={<ProtectedRoute roles={allowedRoles.historial}><Historial /></ProtectedRoute>} />
-          <Route path="reportes" element={<ProtectedRoute roles={allowedRoles.reportes}><Reportes /></ProtectedRoute>} />
-          <Route path="configuracion" element={<ProtectedRoute roles={allowedRoles.configuracion}><Configuracion /></ProtectedRoute>} />
-          <Route path="usuarios" element={<ProtectedRoute roles={allowedRoles.usuarios}><Usuarios /></ProtectedRoute>} />
-          <Route path="papelera" element={<ProtectedRoute roles={allowedRoles.configuracion}><Papelera /></ProtectedRoute>} />
-          <Route path="perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
-          <Route path="acceso-denegado" element={<AccesoDenegado />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
-    </Suspense>
+    <DataProvider>
+      <Suspense fallback={<LoadingPage />}>
+        <Routes>
+          <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
+          <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
+            <Route index element={passwordRecovery ? <Navigate to="/perfil" replace /> : <Dashboard />} />
+            <Route path="clientes" element={<ProtectedRoute roles={allowedRoles.clientes}><Clientes /></ProtectedRoute>} />
+            <Route path="vehiculos" element={<ProtectedRoute roles={allowedRoles.vehiculos}><Vehiculos /></ProtectedRoute>} />
+            <Route path="agenda" element={<ProtectedRoute roles={allowedRoles.agenda}><Agenda /></ProtectedRoute>} />
+            <Route path="tecnicos" element={<ProtectedRoute roles={allowedRoles.tecnicos}><Tecnicos /></ProtectedRoute>} />
+            <Route path="informes" element={<ProtectedRoute roles={allowedRoles.informes}><Informes /></ProtectedRoute>} />
+            <Route path="cotizaciones" element={<ProtectedRoute roles={allowedRoles.cotizaciones}><Cotizaciones /></ProtectedRoute>} />
+            <Route path="inventario" element={<ProtectedRoute roles={allowedRoles.inventario}><Inventario /></ProtectedRoute>} />
+            <Route path="historial" element={<ProtectedRoute roles={allowedRoles.historial}><Historial /></ProtectedRoute>} />
+            <Route path="reportes" element={<ProtectedRoute roles={allowedRoles.reportes}><Reportes /></ProtectedRoute>} />
+            <Route path="configuracion" element={<ProtectedRoute roles={allowedRoles.configuracion}><Configuracion /></ProtectedRoute>} />
+            <Route path="usuarios" element={<ProtectedRoute roles={allowedRoles.usuarios}><Usuarios /></ProtectedRoute>} />
+            <Route path="papelera" element={<ProtectedRoute roles={allowedRoles.configuracion}><Papelera /></ProtectedRoute>} />
+            <Route path="perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
+            <Route path="acceso-denegado" element={<AccesoDenegado />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+          </Routes>
+        </Suspense>
+      </DataProvider>
   </Router>;
 }

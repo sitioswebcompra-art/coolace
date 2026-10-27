@@ -1,9 +1,42 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { isSupabaseConfigured, supabase } from '../supabase';
 
 const DataContext = createContext(null);
 const backgroundSyncInterval = 5 * 60_000;
+const tablesByPath = {
+  '/': ['clientes', 'vehiculos', 'ordenes', 'informes', 'cotizaciones'],
+  '/clientes': ['clientes', 'vehiculos'],
+  '/vehiculos': ['clientes', 'vehiculos'],
+  '/agenda': ['clientes', 'vehiculos', 'ordenes', 'tecnicos'],
+  '/tecnicos': ['ordenes', 'tecnicos'],
+  '/informes': ['clientes', 'vehiculos', 'ordenes', 'informes'],
+  '/cotizaciones': ['clientes', 'vehiculos', 'ordenes', 'tecnicos', 'informes', 'cotizaciones', 'cotizacionItems', 'repuestos', 'companySettings'],
+  '/inventario': ['repuestos'],
+  '/historial': ['clientes', 'vehiculos', 'ordenes', 'informes', 'cotizaciones', 'activity'],
+  '/reportes': ['clientes', 'vehiculos', 'ordenes', 'informes', 'cotizaciones'],
+  '/configuracion': ['companySettings'],
+  '/usuarios': ['clientes', 'tecnicos', 'profiles'],
+  '/papelera': ['clientes', 'vehiculos', 'ordenes', 'tecnicos', 'informes', 'cotizaciones', 'cotizacionItems', 'repuestos'],
+  '/perfil': [],
+  '/login': [],
+  '/acceso-denegado': [],
+};
+const tableNames = {
+  clientes: 'clientes',
+  vehiculos: 'vehiculos',
+  ordenes: 'ordenes',
+  tecnicos: 'tecnicos',
+  informes: 'informes_tecnicos',
+  cotizaciones: 'cotizaciones',
+  cotizacionItems: 'cotizacion_items',
+  repuestos: 'repuestos',
+  notificaciones: 'notificaciones',
+  profiles: 'profiles',
+  activity: 'activity_logs',
+  companySettings: 'company_settings',
+};
 const emptyData = {
   clientes: [],
   vehiculos: [],
@@ -85,6 +118,12 @@ const getErrorMessage = (error) => {
 
 export const DataProvider = ({ children }) => {
   const { user, loading: authLoading } = useAuth();
+  const { pathname } = useLocation();
+  const activeTables = useMemo(() => {
+    const pageTables = (tablesByPath[pathname] || tablesByPath['/']).map((key) => tableNames[key]);
+    const showApplicationShell = pathname !== '/login' && pathname !== '/acceso-denegado';
+    return showApplicationShell ? [...pageTables, tableNames.notificaciones] : pageTables;
+  }, [pathname]);
   const [data, setData] = useState(emptyData);
   const [isLoaded, setIsLoaded] = useState(false);
   const [dataError, setDataError] = useState('');
@@ -92,16 +131,18 @@ export const DataProvider = ({ children }) => {
   const realtimeRefreshTimeout = useRef(null);
   const dataRefreshId = useRef(0);
   const tableRefreshIds = useRef({});
+  const inFlightQueries = useRef(new Map());
   const realtimeConnected = useRef(false);
+  const dataUserId = useRef(null);
 
-  const refreshData = useCallback(async ({ silent = false, tables = null } = {}) => {
+  const refreshData = useCallback(async ({ silent = false, tables = activeTables } = {}) => {
     const isFullRefresh = !tables;
-    const refreshId = isFullRefresh ? ++dataRefreshId.current : null;
+    const refreshId = silent ? null : ++dataRefreshId.current;
     if (!user || !isSupabaseConfigured || !supabase) {
-      if (!isFullRefresh) return;
       Object.keys(tableRefreshIds.current).forEach((key) => {
         tableRefreshIds.current[key] += 1;
       });
+      dataUserId.current = null;
       setData(emptyData);
       setDataError('');
       setRealtimeError('');
@@ -109,27 +150,35 @@ export const DataProvider = ({ children }) => {
       return;
     }
 
+    if (dataUserId.current !== user.id) {
+      dataUserId.current = user.id;
+      Object.keys(tableRefreshIds.current).forEach((key) => {
+        tableRefreshIds.current[key] += 1;
+      });
+      setData(emptyData);
+    }
+
     if (!silent) setIsLoaded(false);
     setDataError('');
-    if (isFullRefresh && user.role !== 'Administrador') {
+    if (user.role !== 'Administrador') {
       tableRefreshIds.current.profiles = (tableRefreshIds.current.profiles || 0) + 1;
     }
-    if (isFullRefresh && user.role === 'Cliente') {
+    if (user.role === 'Cliente') {
       tableRefreshIds.current.activity = (tableRefreshIds.current.activity || 0) + 1;
     }
     const queries = [
-      ['clientes', 'clientes', supabase.from('clientes').select('*').order('created_at', { ascending: false })],
-      ['vehiculos', 'vehiculos', supabase.from('vehiculos').select('*').order('created_at', { ascending: false })],
-      ['ordenes', 'ordenes', supabase.from('ordenes').select('*').order('created_at', { ascending: false })],
-      ['tecnicos', 'tecnicos', supabase.from('tecnicos').select('*').order('nombre')],
-      ['informes', 'informes_tecnicos', supabase.from('informes_tecnicos').select('*').order('created_at', { ascending: false })],
-      ['cotizaciones', 'cotizaciones', supabase.from('cotizaciones').select('*').order('created_at', { ascending: false })],
-      ['cotizacionItems', 'cotizacion_items', supabase.from('cotizacion_items').select('*').order('id')],
-      ['repuestos', 'repuestos', supabase.from('repuestos').select('*').order('nombre')],
-      ['notificaciones', 'notificaciones', supabase.from('notificaciones').select('*').order('created_at', { ascending: false }).limit(50)],
-      ...(user.role === 'Administrador' ? [['profiles', 'profiles', supabase.from('profiles').select('id, name, email, role, cliente_id, activo, created_at').order('name')]] : []),
-      ...(user.role === 'Cliente' ? [] : [['activity', 'activity_logs', supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(200)]]),
-      ['companySettings', 'company_settings', supabase.from('company_settings').select('*').maybeSingle()],
+      ['clientes', 'clientes', () => supabase.from('clientes').select('*').order('created_at', { ascending: false })],
+      ['vehiculos', 'vehiculos', () => supabase.from('vehiculos').select('*').order('created_at', { ascending: false })],
+      ['ordenes', 'ordenes', () => supabase.from('ordenes').select('*').order('created_at', { ascending: false })],
+      ['tecnicos', 'tecnicos', () => supabase.from('tecnicos').select('*').order('nombre')],
+      ['informes', 'informes_tecnicos', () => supabase.from('informes_tecnicos').select('*').order('created_at', { ascending: false })],
+      ['cotizaciones', 'cotizaciones', () => supabase.from('cotizaciones').select('*').order('created_at', { ascending: false })],
+      ['cotizacionItems', 'cotizacion_items', () => supabase.from('cotizacion_items').select('*').order('id')],
+      ['repuestos', 'repuestos', () => supabase.from('repuestos').select('*').order('nombre')],
+      ['notificaciones', 'notificaciones', () => supabase.from('notificaciones').select('*').order('created_at', { ascending: false }).limit(50)],
+      ...(user.role === 'Administrador' ? [['profiles', 'profiles', () => supabase.from('profiles').select('id, name, email, role, cliente_id, activo, created_at').order('name')]] : []),
+      ...(user.role === 'Cliente' ? [] : [['activity', 'activity_logs', () => supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(200)]]),
+      ['companySettings', 'company_settings', () => supabase.from('company_settings').select('*').maybeSingle()],
     ].filter(([, table]) => !tables || tables.includes(table));
 
     try {
@@ -138,10 +187,29 @@ export const DataProvider = ({ children }) => {
         tableRefreshIds.current[key] = requestId;
         return requestId;
       });
-      const results = await Promise.all(queries.map(([, , query]) => query));
+      const requestPromises = queries.map(([key, , createQuery]) => {
+        const existing = inFlightQueries.current.get(key);
+        if (existing?.userId === user.id) return existing.promise;
+
+        const entry = {
+          userId: user.id,
+          promise: Promise.resolve().then(createQuery),
+        };
+        inFlightQueries.current.set(key, entry);
+        entry.promise.then(
+          () => {
+            if (inFlightQueries.current.get(key) === entry) inFlightQueries.current.delete(key);
+          },
+          () => {
+            if (inFlightQueries.current.get(key) === entry) inFlightQueries.current.delete(key);
+          },
+        );
+        return entry.promise;
+      });
+      const results = await Promise.all(requestPromises);
       const updates = {
-        ...(isFullRefresh && user.role !== 'Administrador' ? { profiles: [] } : {}),
-        ...(isFullRefresh && user.role === 'Cliente' ? { activity: [] } : {}),
+        ...(user.role !== 'Administrador' ? { profiles: [] } : {}),
+        ...(user.role === 'Cliente' ? { activity: [] } : {}),
       };
       let firstError = null;
 
@@ -162,9 +230,9 @@ export const DataProvider = ({ children }) => {
       console.error('Error cargando datos de Supabase:', error);
       setDataError(getErrorMessage(error));
     } finally {
-      if (isFullRefresh && refreshId === dataRefreshId.current) setIsLoaded(true);
+      if (refreshId === dataRefreshId.current) setIsLoaded(true);
     }
-  }, [user]);
+  }, [activeTables, user]);
 
   useEffect(() => {
     if (!authLoading) refreshData();
@@ -176,34 +244,21 @@ export const DataProvider = ({ children }) => {
       return undefined;
     }
 
-    const tables = [
-      'clientes',
-      'vehiculos',
-      'ordenes',
-      'tecnicos',
-      'informes_tecnicos',
-      'cotizaciones',
-      'cotizacion_items',
-      'repuestos',
-      'notificaciones',
-      'company_settings',
-      ...(user.role === 'Administrador' ? ['profiles'] : []),
-      ...(user.role === 'Cliente' ? [] : ['activity_logs']),
-    ];
+    const tables = activeTables.filter((table) => (
+      (table !== 'profiles' || user.role === 'Administrador')
+      && (table !== 'activity_logs' || user.role !== 'Cliente')
+    ));
     const pendingTables = new Set();
-    let pendingFullRefresh = false;
     let hasConnected = false;
     let lastFallbackSync = Date.now();
     const scheduleSilentRefresh = (table = null) => {
-      if (table) pendingTables.add(table);
-      else pendingFullRefresh = true;
+      (table ? [table] : tables).forEach((changedTable) => pendingTables.add(changedTable));
       if (realtimeRefreshTimeout.current) {
         window.clearTimeout(realtimeRefreshTimeout.current);
       }
       realtimeRefreshTimeout.current = window.setTimeout(() => {
-        const changedTables = pendingFullRefresh ? null : [...pendingTables];
+        const changedTables = [...pendingTables];
         pendingTables.clear();
-        pendingFullRefresh = false;
         refreshData({ silent: true, tables: changedTables });
       }, 150);
     };
@@ -256,7 +311,7 @@ export const DataProvider = ({ children }) => {
       realtimeConnected.current = false;
       supabase.removeChannel(subscription);
     };
-  }, [authLoading, user, refreshData]);
+  }, [activeTables, authLoading, user, refreshData]);
 
   const saveRecord = async (table, record, currentRecords, setRecords) => {
     if (!supabase) throw new Error('Supabase no está configurado.');

@@ -19,78 +19,81 @@ export const AuthProvider = ({ children }) => {
 
     let active = true;
 
-    const loadProfile = async (authUser) => {
-      if (!authUser) {
-        if (active) {
-          setUser(null);
-          setConfigurationError('');
-        }
-        return;
-      }
+    const loadProfile = (authUser) => supabase
+      .from('profiles')
+      .select('id, name, role, cliente_id, activo')
+      .eq('id', authUser.id)
+      .maybeSingle();
 
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('id, name, role, cliente_id, activo')
-        .eq('id', authUser.id)
-        .maybeSingle();
-
-      if (!active) return;
-      if (error) {
-        console.error('No se pudo cargar el perfil de usuario:', error);
-        setConfigurationError('No se pudo cargar tu perfil. Verifica que aplicaste la migración de base de datos y que tu usuario tenga un perfil.');
-        setUser(null);
-        return;
-      }
-      if (!profile) {
-        setConfigurationError('Tu cuenta de acceso no tiene un perfil asignado. Solicita al administrador que complete tu perfil en Supabase.');
-        setUser(null);
-        return;
-      }
-      if (!profile.activo) {
-        setConfigurationError('Tu cuenta está desactivada. Contacta al administrador del sistema.');
-        setUser(null);
-        return;
-      }
-
-      setConfigurationError('');
-      setUser({
-        id: authUser.id,
-        email: authUser.email,
-        name: profile.name || authUser.user_metadata?.name || authUser.email,
-        role: profile.role,
-        clienteId: profile.cliente_id,
-      });
-    };
-
-    supabase.auth.getSession()
-      .then(({ data, error }) => {
-        if (!active) return;
-        if (error) {
-          console.error('No se pudo recuperar la sesión de Supabase:', error);
-          setConfigurationError('No se pudo validar la sesión. Intenta iniciar sesión nuevamente.');
-        }
-        return loadProfile(data?.session?.user ?? null);
-      })
-      .catch((error) => {
-        console.error('No se pudo recuperar la sesión de Supabase:', error);
-        if (active) setConfigurationError('No se pudo validar la sesión. Intenta iniciar sesión nuevamente.');
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
+    let profileLoadId = 0;
+    let loadedAuthUserId = null;
+    let profileRequest = null;
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (!active) return;
       if (event === 'PASSWORD_RECOVERY') setPasswordRecovery(true);
+      const requestId = ++profileLoadId;
+      const authUser = session?.user ?? null;
+      if (authUser?.id === loadedAuthUserId) {
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       window.setTimeout(() => {
-        loadProfile(session?.user ?? null)
+        if (!active || requestId !== profileLoadId) return;
+        if (!authUser) {
+          loadedAuthUserId = null;
+          setUser(null);
+          setConfigurationError('');
+          setLoading(false);
+          return;
+        }
+        const request = profileRequest?.userId === authUser.id
+          ? profileRequest.promise
+          : loadProfile(authUser);
+        if (profileRequest?.userId !== authUser.id) {
+          profileRequest = { userId: authUser.id, promise: request };
+        }
+        request
+          .then(({ data: profile, error }) => {
+            if (!active || requestId !== profileLoadId) return;
+            if (error) {
+              console.error('No se pudo cargar el perfil de usuario:', error);
+              setConfigurationError('No se pudo cargar tu perfil. Verifica que aplicaste la migración de base de datos y que tu usuario tenga un perfil.');
+              setUser(null);
+              return;
+            }
+            if (!profile) {
+              setConfigurationError('Tu cuenta de acceso no tiene un perfil asignado. Solicita al administrador que complete tu perfil en Supabase.');
+              setUser(null);
+              return;
+            }
+            if (!profile.activo) {
+              setConfigurationError('Tu cuenta está desactivada. Contacta al administrador del sistema.');
+              setUser(null);
+              return;
+            }
+
+            setConfigurationError('');
+            setUser({
+              id: authUser.id,
+              email: authUser.email,
+              name: profile.name || authUser.user_metadata?.name || authUser.email,
+              role: profile.role,
+              clienteId: profile.cliente_id,
+            });
+            loadedAuthUserId = authUser.id;
+          })
           .catch((error) => {
             console.error('No se pudo cargar el perfil de la sesión:', error);
-            if (active) setConfigurationError('No se pudo cargar tu perfil de usuario.');
+            if (active && requestId === profileLoadId) {
+              setConfigurationError('No se pudo cargar tu perfil de usuario.');
+            }
           })
           .finally(() => {
-            if (active) setLoading(false);
+            if (profileRequest?.promise === request) profileRequest = null;
+            if (active && requestId === profileLoadId) {
+              setLoading(false);
+            }
           });
       }, 0);
     });

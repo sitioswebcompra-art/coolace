@@ -710,24 +710,24 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-  target_user uuid;
-  title_text text;
 begin
   if new.estado in ('Enviada', 'Aprobada', 'Rechazada')
     and (tg_op = 'INSERT' or old.estado is distinct from new.estado) then
-    title_text := case new.estado
-      when 'Aprobada' then 'Cotización aprobada'
-      when 'Rechazada' then 'Cotización rechazada'
-      when 'Enviada' then 'Cotización enviada'
-      else 'Nueva cotización'
-    end;
-    for target_user in
-      select id from public.profiles where cliente_id::text = new."clienteId"::text and activo = true
-    loop
-      insert into public.notificaciones (user_id, titulo, mensaje, tipo, enlace)
-      values (target_user, title_text, 'La cotización ' || new.numero || ' cambió a estado ' || new.estado || '.', 'cotizacion', '/cotizaciones');
-    end loop;
+    -- Una sola inserción set-based evita un INSERT por cada usuario del cliente.
+    insert into public.notificaciones (user_id, titulo, mensaje, tipo, enlace)
+    select
+      id,
+      case new.estado
+        when 'Aprobada' then 'Cotización aprobada'
+        when 'Rechazada' then 'Cotización rechazada'
+        when 'Enviada' then 'Cotización enviada'
+        else 'Nueva cotización'
+      end,
+      'La cotización ' || new.numero || ' cambió a estado ' || new.estado || '.',
+      'cotizacion',
+      '/cotizaciones'
+    from public.profiles
+    where cliente_id = new."clienteId" and activo = true;
   end if;
   return new;
 end;
@@ -745,24 +745,35 @@ security definer
 set search_path = public
 as $$
 declare
-  target_user uuid;
-  order_record public.ordenes%rowtype;
+  target_cliente_id bigint;
 begin
   if new.estado = 'Completado' and (tg_op = 'INSERT' or old.estado is distinct from new.estado) then
-    select * into order_record from public.ordenes where id = new.orden_id;
-    for target_user in
-      select id from public.profiles where role in ('Administrador', 'Supervisor', 'Área administrativa') and activo = true
-    loop
+    -- Solo se necesita la FK del cliente; evitar cargar toda la orden.
+    select "clienteId" into target_cliente_id
+    from public.ordenes
+    where id = new.orden_id;
+
+    insert into public.notificaciones (user_id, titulo, mensaje, tipo, enlace)
+    select
+      id,
+      'Informe técnico completado',
+      'Se completó el informe de la orden ' || new.orden_id || '.',
+      'informe',
+      '/informes'
+    from public.profiles
+    where role in ('Administrador', 'Supervisor', 'Área administrativa')
+      and activo = true;
+
+    if target_cliente_id is not null then
       insert into public.notificaciones (user_id, titulo, mensaje, tipo, enlace)
-      values (target_user, 'Informe técnico completado', 'Se completó el informe de la orden ' || new.orden_id || '.', 'informe', '/informes');
-    end loop;
-    if order_record."clienteId" is not null then
-      for target_user in
-        select id from public.profiles where cliente_id::text = order_record."clienteId"::text and activo = true
-      loop
-        insert into public.notificaciones (user_id, titulo, mensaje, tipo, enlace)
-        values (target_user, 'Servicio completado', 'El informe técnico de la orden ' || new.orden_id || ' está disponible.', 'informe', '/historial');
-      end loop;
+      select
+        id,
+        'Servicio completado',
+        'El informe técnico de la orden ' || new.orden_id || ' está disponible.',
+        'informe',
+        '/historial'
+      from public.profiles
+      where cliente_id = target_cliente_id and activo = true;
     end if;
   end if;
   return new;
@@ -780,8 +791,12 @@ create index if not exists idx_ordenes_estado on public.ordenes (estado);
 create index if not exists idx_ordenes_cliente on public.ordenes ("clienteId");
 create index if not exists idx_informes_orden on public.informes_tecnicos (orden_id);
 create index if not exists idx_cotizaciones_cliente on public.cotizaciones ("clienteId");
+create index if not exists idx_cotizaciones_orden on public.cotizaciones (orden_id);
+create index if not exists idx_cotizacion_items_cotizacion on public.cotizacion_items (cotizacion_id);
+create index if not exists idx_informes_tecnico on public.informes_tecnicos (tecnico_id);
 create index if not exists idx_notificaciones_user on public.notificaciones (user_id, leida);
 create index if not exists idx_activity_logs_cliente on public.activity_logs (cliente_id, created_at desc);
+create index if not exists idx_activity_logs_orden on public.activity_logs (orden_id, created_at desc);
 create index if not exists idx_ordenes_tecnico on public.ordenes (tecnico_id);
 create index if not exists idx_ordenes_vehiculo on public.ordenes ("vehiculoId");
 create index if not exists idx_ordenes_created_at on public.ordenes (created_at desc);
@@ -789,6 +804,8 @@ create index if not exists idx_informes_created_at on public.informes_tecnicos (
 create index if not exists idx_cotizaciones_created_at on public.cotizaciones (created_at desc);
 create index if not exists idx_notificaciones_user_created_at on public.notificaciones (user_id, created_at desc);
 create index if not exists idx_activity_logs_created_at on public.activity_logs (created_at desc);
+create index if not exists idx_profiles_cliente_activo on public.profiles (cliente_id) where activo = true;
+create index if not exists idx_profiles_role_activo on public.profiles (role) where activo = true;
 
 alter table public.profiles enable row level security;
 alter table public.clientes enable row level security;

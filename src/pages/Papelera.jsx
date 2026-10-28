@@ -120,7 +120,7 @@ export default function Papelera() {
   const refreshTrash = async () => {
     setRefreshing(true);
     try {
-      await refreshData({ silent: true });
+      await refreshData({ silent: true, force: true });
     } finally {
       setRefreshing(false);
     }

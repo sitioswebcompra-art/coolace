@@ -129,7 +129,7 @@ export default function Cotizaciones() {
           throw new Error(`La cotización se creó, pero no se guardaron sus líneas: ${itemError.message}`);
         }
       }
-      await refreshData();
+      await refreshData({ force: true });
       setShowModal(false);
       setNotice(`Cotización ${quote.numero} creada correctamente.`);
       window.setTimeout(() => setNotice(''), 4000);
@@ -192,7 +192,7 @@ export default function Cotizaciones() {
         decision,
       });
       if (responseError) throw new Error(responseError.message);
-      await refreshData();
+      await refreshData({ force: true });
       setNotice(`La cotización ${quote.numero} fue ${decision.toLowerCase()}.`);
       window.setTimeout(() => setNotice(''), 4000);
     } catch (responseError) {

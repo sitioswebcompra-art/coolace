@@ -5,6 +5,7 @@ import { isSupabaseConfigured, supabase } from '../supabase';
 
 const DataContext = createContext(null);
 const backgroundSyncInterval = 5 * 60_000;
+const queryCacheDuration = 30_000;
 const tablesByPath = {
   '/': ['clientes', 'vehiculos', 'ordenes', 'informes', 'cotizaciones'],
   '/clientes': ['clientes', 'vehiculos'],
@@ -36,6 +37,24 @@ const tableNames = {
   profiles: 'profiles',
   activity: 'activity_logs',
   companySettings: 'company_settings',
+};
+const queryKeysByTable = Object.fromEntries(
+  Object.entries(tableNames).map(([key, table]) => [table, key]),
+);
+const getQueryCacheKey = (userId, table) => `coolace:v1:${userId}:${table}`;
+const selectColumnsByTable = {
+  clientes: 'id, tipo, nombre, rut, contacto, telefono, email, direccion, comuna, ciudad, condiciones_pago, notas, estado, created_at, updated_at, archived_at',
+  vehiculos: 'id, patente, marca, modelo, clienteId, estado, anio, vin, tipo_vehiculo, kilometraje, equipo_marca, equipo_modelo, refrigerante, capacidad_enfriamiento, horas_uso, tipo_sistema, numero_serie_equipo, fecha_instalacion, ultimo_mantenimiento, proximo_mantenimiento, observaciones, updated_at, archived_at',
+  ordenes: 'id, vehiculoId, clienteId, servicio, estado, fecha, tecnico, descripcion, direccion, hora_inicio, duracion_estimada, tecnico_id, zona, prioridad, observaciones, created_at, updated_at, archived_at',
+  tecnicos: 'id, user_id, nombre, telefono, email, especialidad, zona, estado, archived_at',
+  informes_tecnicos: 'id, orden_id, estado, llegada, termino, ubicacion, tipo_trabajo, checklist, mediciones, diagnostico, fallas, repuestos, materiales, archivos, observaciones, recomendaciones, firma_path, created_at, updated_at, archived_at',
+  cotizaciones: 'id, numero, orden_id, informe_id, clienteId, vehiculoId, estado, fecha_emision, fecha_vencimiento, mano_obra, descuento, impuestos, total_neto, total, condiciones_pago, tiempo_estimado, garantia, observaciones, created_at, updated_at, archived_at',
+  cotizacion_items: 'id, cotizacion_id, repuesto_id, descripcion, cantidad, precio_unitario, impuesto, tipo',
+  repuestos: 'id, codigo, nombre, categoria, marca, descripcion, precio_compra, precio_venta, impuesto, stock, unidad, estado, observaciones, archived_at',
+  notificaciones: 'id, titulo, mensaje, leida, enlace, created_at',
+  activity_logs: 'id, cliente_id, vehiculo_id, orden_id, entidad, entidad_id, accion, descripcion, created_at',
+  company_settings: 'id, nombre, rut, direccion, telefono, email, logo_url, impuesto, condiciones_pago',
+  profiles: 'id, name, email, role, cliente_id, activo, created_at',
 };
 const emptyData = {
   clientes: [],
@@ -132,16 +151,27 @@ export const DataProvider = ({ children }) => {
   const dataRefreshId = useRef(0);
   const tableRefreshIds = useRef({});
   const inFlightQueries = useRef(new Map());
+  const queryCache = useRef(new Map());
   const realtimeConnected = useRef(false);
   const dataUserId = useRef(null);
 
-  const refreshData = useCallback(async ({ silent = false, tables = activeTables } = {}) => {
+  const invalidateTableCache = useCallback((table) => {
+    const key = queryKeysByTable[table];
+    if (!key || !user) return;
+    queryCache.current.delete(getQueryCacheKey(user.id, table));
+    tableRefreshIds.current[key] = (tableRefreshIds.current[key] || 0) + 1;
+    inFlightQueries.current.delete(key);
+  }, [user]);
+
+  const refreshData = useCallback(async ({ silent = false, tables = activeTables, force = false } = {}) => {
     const isFullRefresh = !tables;
     const refreshId = silent ? null : ++dataRefreshId.current;
     if (!user || !isSupabaseConfigured || !supabase) {
       Object.keys(tableRefreshIds.current).forEach((key) => {
         tableRefreshIds.current[key] += 1;
       });
+      queryCache.current.clear();
+      inFlightQueries.current.clear();
       dataUserId.current = null;
       setData(emptyData);
       setDataError('');
@@ -155,10 +185,11 @@ export const DataProvider = ({ children }) => {
       Object.keys(tableRefreshIds.current).forEach((key) => {
         tableRefreshIds.current[key] += 1;
       });
+      queryCache.current.clear();
+      inFlightQueries.current.clear();
       setData(emptyData);
     }
 
-    if (!silent) setIsLoaded(false);
     setDataError('');
     if (user.role !== 'Administrador') {
       tableRefreshIds.current.profiles = (tableRefreshIds.current.profiles || 0) + 1;
@@ -167,19 +198,22 @@ export const DataProvider = ({ children }) => {
       tableRefreshIds.current.activity = (tableRefreshIds.current.activity || 0) + 1;
     }
     const queries = [
-      ['clientes', 'clientes', () => supabase.from('clientes').select('*').order('created_at', { ascending: false })],
-      ['vehiculos', 'vehiculos', () => supabase.from('vehiculos').select('*').order('created_at', { ascending: false })],
-      ['ordenes', 'ordenes', () => supabase.from('ordenes').select('*').order('created_at', { ascending: false })],
-      ['tecnicos', 'tecnicos', () => supabase.from('tecnicos').select('*').order('nombre')],
-      ['informes', 'informes_tecnicos', () => supabase.from('informes_tecnicos').select('*').order('created_at', { ascending: false })],
-      ['cotizaciones', 'cotizaciones', () => supabase.from('cotizaciones').select('*').order('created_at', { ascending: false })],
-      ['cotizacionItems', 'cotizacion_items', () => supabase.from('cotizacion_items').select('*').order('id')],
-      ['repuestos', 'repuestos', () => supabase.from('repuestos').select('*').order('nombre')],
-      ['notificaciones', 'notificaciones', () => supabase.from('notificaciones').select('id, titulo, mensaje, leida, enlace, created_at').order('created_at', { ascending: false }).limit(50)],
-      ...(user.role === 'Administrador' ? [['profiles', 'profiles', () => supabase.from('profiles').select('id, name, email, role, cliente_id, activo, created_at').order('name')]] : []),
-      ...(user.role === 'Cliente' ? [] : [['activity', 'activity_logs', () => supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(200)]]),
-      ['companySettings', 'company_settings', () => supabase.from('company_settings').select('*').maybeSingle()],
-    ].filter(([, table]) => !tables || tables.includes(table));
+      ['clientes', 'clientes', () => supabase.from('clientes').select(selectColumnsByTable.clientes).order('created_at', { ascending: false })],
+      ['vehiculos', 'vehiculos', () => supabase.from('vehiculos').select(selectColumnsByTable.vehiculos).order('created_at', { ascending: false })],
+      ['ordenes', 'ordenes', () => supabase.from('ordenes').select(selectColumnsByTable.ordenes).order('created_at', { ascending: false })],
+      ['tecnicos', 'tecnicos', () => supabase.from('tecnicos').select(selectColumnsByTable.tecnicos).order('nombre')],
+      ['informes', 'informes_tecnicos', () => supabase.from('informes_tecnicos').select(selectColumnsByTable.informes_tecnicos).order('created_at', { ascending: false })],
+      ['cotizaciones', 'cotizaciones', () => supabase.from('cotizaciones').select(selectColumnsByTable.cotizaciones).order('created_at', { ascending: false })],
+      ['cotizacionItems', 'cotizacion_items', () => supabase.from('cotizacion_items').select(selectColumnsByTable.cotizacion_items).order('id')],
+      ['repuestos', 'repuestos', () => supabase.from('repuestos').select(selectColumnsByTable.repuestos).order('nombre')],
+      ['notificaciones', 'notificaciones', () => supabase.from('notificaciones').select(selectColumnsByTable.notificaciones).order('created_at', { ascending: false }).limit(50)],
+      ...(user.role === 'Administrador' ? [['profiles', 'profiles', () => supabase.from('profiles').select(selectColumnsByTable.profiles).order('name')]] : []),
+      ...(user.role === 'Cliente' ? [] : [['activity', 'activity_logs', () => supabase.from('activity_logs').select(selectColumnsByTable.activity_logs).order('created_at', { ascending: false }).limit(200)]]),
+      ['companySettings', 'company_settings', () => supabase.from('company_settings').select(selectColumnsByTable.company_settings).maybeSingle()],
+    ].filter(([, table]) => (!tables || tables.includes(table))
+      && (force || Date.now() - (queryCache.current.get(getQueryCacheKey(user.id, table)) || 0) >= queryCacheDuration));
+
+    if (!silent && queries.length) setIsLoaded(false);
 
     try {
       const requestIds = queries.map(([key]) => {
@@ -189,7 +223,7 @@ export const DataProvider = ({ children }) => {
       });
       const requestPromises = queries.map(([key, , createQuery]) => {
         const existing = inFlightQueries.current.get(key);
-        if (existing?.userId === user.id) return existing.promise;
+        if (!force && existing?.userId === user.id) return existing.promise;
 
         const entry = {
           userId: user.id,
@@ -217,11 +251,13 @@ export const DataProvider = ({ children }) => {
         if (tableRefreshIds.current[key] !== requestIds[index]) return;
         const result = results[index];
         if (result?.error) {
+          queryCache.current.delete(getQueryCacheKey(user.id, queries[index][1]));
           firstError ||= result.error;
           if (isFullRefresh) updates[key] = key === 'companySettings' ? null : [];
           console.error('Error cargando datos de Supabase:', result.error);
           return;
         }
+        queryCache.current.set(getQueryCacheKey(user.id, queries[index][1]), Date.now());
         updates[key] = result?.data ?? (key === 'companySettings' ? null : []);
       });
       if (firstError) setDataError(getErrorMessage(firstError));
@@ -252,14 +288,17 @@ export const DataProvider = ({ children }) => {
     let hasConnected = false;
     let lastFallbackSync = Date.now();
     const scheduleSilentRefresh = (table = null) => {
-      (table ? [table] : tables).forEach((changedTable) => pendingTables.add(changedTable));
+      (table ? [table] : tables).forEach((changedTable) => {
+        invalidateTableCache(changedTable);
+        pendingTables.add(changedTable);
+      });
       if (realtimeRefreshTimeout.current) {
         window.clearTimeout(realtimeRefreshTimeout.current);
       }
       realtimeRefreshTimeout.current = window.setTimeout(() => {
         const changedTables = [...pendingTables];
         pendingTables.clear();
-        refreshData({ silent: true, tables: changedTables });
+        refreshData({ silent: true, tables: changedTables, force: true });
       }, 150);
     };
     const channel = supabase.channel(`data-changes-${user.id}`);
@@ -311,18 +350,19 @@ export const DataProvider = ({ children }) => {
       realtimeConnected.current = false;
       supabase.removeChannel(subscription);
     };
-  }, [activeTables, authLoading, user, refreshData]);
+  }, [activeTables, authLoading, user, refreshData, invalidateTableCache]);
 
   const saveRecord = async (table, record, currentRecords, setRecords) => {
     if (!supabase) throw new Error('Supabase no está configurado.');
     const query = record.id
-      ? supabase.from(table).update(record).eq('id', record.id).select().single()
-      : supabase.from(table).insert(record).select().single();
+      ? supabase.from(table).update(record).eq('id', record.id).select(selectColumnsByTable[table]).single()
+      : supabase.from(table).insert(record).select(selectColumnsByTable[table]).single();
     const { data: saved, error } = await query;
     if (error) {
       console.error(`Error guardando registro en ${table}:`, error);
       throw new Error(getErrorMessage(error));
     }
+    invalidateTableCache(table);
     setRecords(record.id
       ? currentRecords.map((item) => item.id === saved.id ? saved : item)
       : [saved, ...currentRecords]);
@@ -358,12 +398,13 @@ export const DataProvider = ({ children }) => {
     const { data: saved, error } = await supabase
       .from('ordenes')
       .insert({ ...record, id, created_by: user.id })
-      .select()
+      .select(selectColumnsByTable.ordenes)
       .single();
     if (error) {
       console.error('Error creando orden de trabajo:', error);
       throw new Error(getErrorMessage(error));
     }
+    invalidateTableCache('ordenes');
     setData((current) => ({ ...current, ordenes: [saved, ...current.ordenes] }));
     await logActivity({ entidad: 'orden', entidad_id: id, accion: 'creada', descripcion: `Se creó la orden ${id}.`, cliente_id: record.clienteId, vehiculo_id: record.vehiculoId, orden_id: id });
     return saved;
@@ -375,12 +416,13 @@ export const DataProvider = ({ children }) => {
       .from('ordenes')
       .update({ estado, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select()
+      .select(selectColumnsByTable.ordenes)
       .single();
     if (error) {
       console.error('Error actualizando el estado de la orden:', error);
       throw new Error(getErrorMessage(error));
     }
+    invalidateTableCache('ordenes');
     setData((current) => ({ ...current, ordenes: current.ordenes.map((order) => order.id === id ? updated : order) }));
     await logActivity({ entidad: 'orden', entidad_id: id, accion: 'estado actualizado', descripcion: `La orden ${id} cambió a estado ${estado}.`, cliente_id: updated.clienteId, vehiculo_id: updated.vehiculoId, orden_id: id });
     return updated;
@@ -392,12 +434,13 @@ export const DataProvider = ({ children }) => {
       .from('ordenes')
       .update({ ...record, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select()
+      .select(selectColumnsByTable.ordenes)
       .single();
     if (error) {
       console.error('Error actualizando la orden de trabajo:', error);
       throw new Error(getErrorMessage(error));
     }
+    invalidateTableCache('ordenes');
     setData((current) => ({ ...current, ordenes: current.ordenes.map((order) => order.id === id ? updated : order) }));
     await logActivity({
       entidad: 'orden',
@@ -426,17 +469,18 @@ export const DataProvider = ({ children }) => {
       console.error('No se pudo convertir la cotización en una orden:', error);
       throw new Error(getErrorMessage(error));
     }
-    await refreshData();
+    await refreshData({ force: true });
     return order;
   };
 
   const logActivity = async (activity) => {
     if (!supabase || !user) return;
-    const { data: saved, error } = await supabase.from('activity_logs').insert({ ...activity, user_id: user.id }).select().single();
+    const { data: saved, error } = await supabase.from('activity_logs').insert({ ...activity, user_id: user.id }).select(selectColumnsByTable.activity_logs).single();
     if (error) {
       console.error('No se pudo guardar la actividad:', error);
       return;
     }
+    invalidateTableCache('activity_logs');
     setData((current) => ({ ...current, activity: [saved, ...(current.activity || [])].slice(0, 200) }));
   };
 
@@ -449,13 +493,14 @@ export const DataProvider = ({ children }) => {
     const { data: updated, error } = await supabase.from(table)
       .update({ archived_at: new Date().toISOString() })
       .eq(target.idColumn, id)
-      .select()
+      .select(selectColumnsByTable[table])
       .single();
     if (error) {
       console.error(`Error archivando registro de ${table}:`, error);
       throw new Error(getErrorMessage(error));
     }
 
+    invalidateTableCache(table);
     setData((current) => ({
       ...current,
       [target.key]: current[target.key].map((record) => record.id === id ? updated : record),
@@ -477,13 +522,14 @@ export const DataProvider = ({ children }) => {
     const { data: updated, error } = await supabase.from(table)
       .update({ archived_at: null })
       .eq(target.idColumn, id)
-      .select()
+      .select(selectColumnsByTable[table])
       .single();
     if (error) {
       console.error(`Error restaurando registro de ${table}:`, error);
       throw new Error(getErrorMessage(error));
     }
 
+    invalidateTableCache(table);
     setData((current) => ({
       ...current,
       [target.key]: current[target.key].map((record) => record.id === id ? updated : record),
@@ -510,11 +556,12 @@ export const DataProvider = ({ children }) => {
       .maybeSingle();
     if (error) {
       console.error(`Error eliminando permanentemente registro de ${table}:`, error);
-      if (error.code === '23503') await refreshData({ silent: true });
+      if (error.code === '23503') await refreshData({ silent: true, force: true });
       throw new Error(getErrorMessage(error));
     }
     if (!deleted) throw new Error('El registro ya no está en la papelera. Actualiza la página e inténtalo de nuevo.');
 
+    invalidateTableCache(table);
     setData((current) => ({
       ...current,
       [target.key]: current[target.key].filter((record) => String(record.id) !== String(id)),
@@ -543,9 +590,10 @@ export const DataProvider = ({ children }) => {
       throw new Error(getErrorMessage(error));
     }
 
+    invalidateTableCache('cotizacion_items');
     const deletedIds = new Set((deletedLines || []).map((item) => item.id));
     if (deletedIds.size < expectedCount) {
-      await refreshData({ silent: true });
+      await refreshData({ silent: true, force: true });
       throw new Error('No se eliminaron todas las líneas. Actualiza database.sql en Supabase y confirma que solo Administración tenga permiso para eliminar líneas.');
     }
     setData((current) => ({
@@ -568,6 +616,7 @@ export const DataProvider = ({ children }) => {
       console.error('No se pudo marcar la notificación como leída:', error);
       throw new Error(getErrorMessage(error));
     }
+    invalidateTableCache('notificaciones');
     setData((current) => ({
       ...current,
       notificaciones: current.notificaciones.map((item) => item.id === id ? { ...item, leida: true } : item),
@@ -579,12 +628,13 @@ export const DataProvider = ({ children }) => {
     const { data: saved, error } = await supabase
       .from('company_settings')
       .upsert({ ...settings, id: 1, updated_at: new Date().toISOString() })
-      .select()
+      .select(selectColumnsByTable.company_settings)
       .single();
     if (error) {
       console.error('Error guardando la configuración de la empresa:', error);
       throw new Error(getErrorMessage(error));
     }
+    invalidateTableCache('company_settings');
     setData((current) => ({ ...current, companySettings: saved }));
     return saved;
   };
@@ -602,7 +652,7 @@ export const DataProvider = ({ children }) => {
       console.error('No se pudieron actualizar los permisos del usuario:', error);
       throw new Error(getErrorMessage(error));
     }
-    await refreshData();
+    await refreshData({ force: true });
     return saved;
   };
 

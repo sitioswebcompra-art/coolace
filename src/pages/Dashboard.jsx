@@ -59,7 +59,7 @@ export default function Dashboard() {
           Cliente: clientName(order.clienteId),
           Patente: data.vehiculos.find((vehicle) => vehicle.id === order.vehiculoId)?.patente || '',
           Técnico: order.tecnico || '',
-        }))} /><button onClick={refreshData} className="btn-secondary flex items-center gap-2"><RefreshCw size={16} /> Actualizar</button></>} />
+        }))} /><button onClick={() => refreshData({ force: true })} className="btn-secondary flex items-center gap-2"><RefreshCw size={16} /> Actualizar</button></>} />
       {dataError && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
         <p className="font-semibold">No se pudieron cargar todos los datos</p><p className="mt-1">{dataError}</p>
       </div>}

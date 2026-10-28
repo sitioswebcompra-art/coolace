@@ -54,7 +54,7 @@ export default function Login() {
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
         <div className="text-brand-blue text-5xl mb-4">❄️</div>
         <h2 className="text-3xl font-extrabold text-brand-dark">CoolAceGest</h2>
-        <p className="mt-2 text-sm text-slate-600">Gestión de servicios y refrigeración vehicular</p>
+        <p className="mt-2 text-sm text-slate-600">Gestión de servicios y refrigeración</p>
       </div>
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border">

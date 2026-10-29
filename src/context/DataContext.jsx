@@ -24,6 +24,8 @@ const tablesByPath = {
   '/login': [],
   '/acceso-denegado': [],
 };
+const dashboardTables = ['clientes', 'vehiculos', 'ordenes', 'informes_tecnicos', 'cotizaciones', 'notificaciones'];
+const dashboardBundleTable = '__dashboard_bundle';
 const tableNames = {
   clientes: 'clientes',
   vehiculos: 'vehiculos',
@@ -160,6 +162,9 @@ export const DataProvider = ({ children }) => {
     if (!key || !user) return;
     queryCache.current.delete(getQueryCacheKey(user.id, table));
     tableRefreshIds.current[key] = (tableRefreshIds.current[key] || 0) + 1;
+    if (dashboardTables.includes(table)) {
+      tableRefreshIds.current.dashboard = (tableRefreshIds.current.dashboard || 0) + 1;
+    }
     inFlightQueries.current.delete(key);
   }, [user]);
 
@@ -197,7 +202,12 @@ export const DataProvider = ({ children }) => {
     if (user.role === 'Cliente') {
       tableRefreshIds.current.activity = (tableRefreshIds.current.activity || 0) + 1;
     }
-    const queries = [
+    const useDashboardBundle = Array.isArray(tables)
+      && dashboardTables.every((table) => tables.includes(table))
+      && tables.every((table) => dashboardTables.includes(table));
+    const queryDefinitions = useDashboardBundle
+      ? [['dashboard', dashboardBundleTable, () => supabase.rpc('load_dashboard_data')]]
+      : [
       ['clientes', 'clientes', () => supabase.from('clientes').select(selectColumnsByTable.clientes).order('created_at', { ascending: false })],
       ['vehiculos', 'vehiculos', () => supabase.from('vehiculos').select(selectColumnsByTable.vehiculos).order('created_at', { ascending: false })],
       ['ordenes', 'ordenes', () => supabase.from('ordenes').select(selectColumnsByTable.ordenes).order('created_at', { ascending: false })],
@@ -210,8 +220,16 @@ export const DataProvider = ({ children }) => {
       ...(user.role === 'Administrador' ? [['profiles', 'profiles', () => supabase.from('profiles').select(selectColumnsByTable.profiles).order('name')]] : []),
       ...(user.role === 'Cliente' ? [] : [['activity', 'activity_logs', () => supabase.from('activity_logs').select(selectColumnsByTable.activity_logs).order('created_at', { ascending: false }).limit(200)]]),
       ['companySettings', 'company_settings', () => supabase.from('company_settings').select(selectColumnsByTable.company_settings).maybeSingle()],
-    ].filter(([, table]) => (!tables || tables.includes(table))
-      && (force || Date.now() - (queryCache.current.get(getQueryCacheKey(user.id, table)) || 0) >= queryCacheDuration));
+      ];
+    const queries = queryDefinitions.filter(([, table]) => {
+      if (table === dashboardBundleTable) {
+        return force || dashboardTables.some((dashboardTable) => (
+          Date.now() - (queryCache.current.get(getQueryCacheKey(user.id, dashboardTable)) || 0) >= queryCacheDuration
+        ));
+      }
+      return (!tables || tables.includes(table))
+        && (force || Date.now() - (queryCache.current.get(getQueryCacheKey(user.id, table)) || 0) >= queryCacheDuration);
+    });
 
     if (!silent && queries.length) setIsLoaded(false);
 
@@ -251,14 +269,28 @@ export const DataProvider = ({ children }) => {
         if (tableRefreshIds.current[key] !== requestIds[index]) return;
         const result = results[index];
         if (result?.error) {
-          queryCache.current.delete(getQueryCacheKey(user.id, queries[index][1]));
+          if (key === 'dashboard') {
+            dashboardTables.forEach((table) => queryCache.current.delete(getQueryCacheKey(user.id, table)));
+          } else {
+            queryCache.current.delete(getQueryCacheKey(user.id, queries[index][1]));
+          }
           firstError ||= result.error;
-          if (isFullRefresh) updates[key] = key === 'companySettings' ? null : [];
+          if (isFullRefresh) {
+            if (key === 'dashboard') dashboardTables.forEach((table) => { updates[queryKeysByTable[table]] = []; });
+            else updates[key] = key === 'companySettings' ? null : [];
+          }
           console.error('Error cargando datos de Supabase:', result.error);
           return;
         }
-        queryCache.current.set(getQueryCacheKey(user.id, queries[index][1]), Date.now());
-        updates[key] = result?.data ?? (key === 'companySettings' ? null : []);
+        if (key === 'dashboard') {
+          dashboardTables.forEach((table) => {
+            queryCache.current.set(getQueryCacheKey(user.id, table), Date.now());
+            updates[queryKeysByTable[table]] = result?.data?.[queryKeysByTable[table]] ?? [];
+          });
+        } else {
+          queryCache.current.set(getQueryCacheKey(user.id, queries[index][1]), Date.now());
+          updates[key] = result?.data ?? (key === 'companySettings' ? null : []);
+        }
       });
       if (firstError) setDataError(getErrorMessage(firstError));
       setData((current) => ({ ...current, ...updates }));

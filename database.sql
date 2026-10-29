@@ -1089,6 +1089,80 @@ grant select, insert, update on public.tecnicos, public.informes_tecnicos, publi
   public.company_settings to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
 
+create or replace function public.load_dashboard_data()
+returns jsonb
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select pg_catalog.jsonb_build_object(
+    'clientes', coalesce((
+      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc)
+      from (
+        select id, tipo, nombre, rut, contacto, telefono, email, direccion, comuna, ciudad,
+          condiciones_pago, notas, estado, created_at, updated_at, archived_at
+        from public.clientes
+        order by created_at desc
+      ) as row_data
+    ), '[]'::jsonb),
+    'vehiculos', coalesce((
+      select pg_catalog.jsonb_agg((pg_catalog.to_jsonb(row_data) - 'created_at') order by row_data.created_at desc)
+      from (
+        select id, patente, marca, modelo, "clienteId", estado, anio, vin, tipo_vehiculo,
+          kilometraje, equipo_marca, equipo_modelo, refrigerante, capacidad_enfriamiento,
+          horas_uso, tipo_sistema, numero_serie_equipo, fecha_instalacion, ultimo_mantenimiento,
+          proximo_mantenimiento, observaciones, updated_at, archived_at, created_at
+        from public.vehiculos
+        order by created_at desc
+      ) as row_data
+    ), '[]'::jsonb),
+    'ordenes', coalesce((
+      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc)
+      from (
+        select id, "vehiculoId", "clienteId", servicio, estado, fecha, tecnico, descripcion,
+          direccion, hora_inicio, duracion_estimada, tecnico_id, zona, prioridad, observaciones,
+          created_at, updated_at, archived_at
+        from public.ordenes
+        order by created_at desc
+      ) as row_data
+    ), '[]'::jsonb),
+    'informes', coalesce((
+      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc)
+      from (
+        select id, orden_id, estado, llegada, termino, ubicacion, tipo_trabajo, checklist,
+          mediciones, diagnostico, fallas, repuestos, materiales, archivos, observaciones,
+          recomendaciones, firma_path, created_at, updated_at, archived_at
+        from public.informes_tecnicos
+        order by created_at desc
+      ) as row_data
+    ), '[]'::jsonb),
+    'cotizaciones', coalesce((
+      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc)
+      from (
+        select id, numero, orden_id, informe_id, "clienteId", "vehiculoId", estado,
+          fecha_emision, fecha_vencimiento, mano_obra, descuento, impuestos, total_neto, total,
+          condiciones_pago, tiempo_estimado, garantia, observaciones, created_at, updated_at,
+          archived_at
+        from public.cotizaciones
+        order by created_at desc
+      ) as row_data
+    ), '[]'::jsonb),
+    'notificaciones', coalesce((
+      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc)
+      from (
+        select id, titulo, mensaje, leida, enlace, created_at
+        from public.notificaciones
+        order by created_at desc
+        limit 50
+      ) as row_data
+    ), '[]'::jsonb)
+  );
+$$;
+
+revoke all on function public.load_dashboard_data() from public, anon;
+grant execute on function public.load_dashboard_data() to authenticated;
+
 -- El registro publico de usuarios se mantiene desactivado.
 -- Crear usuarios internos desde Authentication > Users; el trigger crea su perfil.
 -- La primera cuenta administradora se eleva manualmente despues de crearla:

@@ -52,9 +52,9 @@ export default function MainLayout() {
   };
 
   return (
-    <div className="flex min-h-screen bg-brand-light">
+    <div className="app-shell flex min-h-screen bg-brand-light">
       {sidebarOpen && <button type="button" aria-label="Cerrar menú" className="fixed inset-0 z-20 bg-slate-950/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
-      <aside className={`fixed inset-y-0 left-0 z-30 flex w-72 flex-col bg-brand-dark text-white transition-transform duration-200 lg:static lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`app-sidebar fixed inset-y-0 left-0 z-30 flex w-72 flex-col bg-brand-dark text-white transition-transform duration-200 lg:static lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-700 px-5">
           <Link to="/" onClick={closeNavigation} className="flex items-center gap-2 text-lg font-bold"><span className="text-brand-electric">❄</span> CoolAceGest</Link>
           <button className="rounded p-2 text-slate-300 lg:hidden" onClick={() => setSidebarOpen(false)} aria-label="Cerrar menú"><X size={20} /></button>
@@ -104,7 +104,9 @@ export default function MainLayout() {
           </div>
         </header>
         {logoutError && <p role="alert" className="bg-red-50 px-4 py-2 text-sm text-red-700">{logoutError}</p>}
-        <div className="flex-1 p-4 sm:p-6 xl:p-8"><Outlet /></div>
+        <div className="flex-1 p-4 sm:p-6 xl:p-8">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

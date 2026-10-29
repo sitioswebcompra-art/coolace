@@ -4,6 +4,7 @@ import { useAuth } from './context/AuthContext';
 import { DataProvider } from './context/DataContext';
 import MainLayout from './layouts/MainLayout';
 import Login from './pages/Login';
+import PwaExperience from './components/PwaExperience';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Clientes = lazy(() => import('./pages/Clientes'));
@@ -50,6 +51,7 @@ export default function App() {
   const { user, passwordRecovery } = useAuth();
   return <Router>
     <DataProvider>
+      <PwaExperience />
       <Suspense fallback={<LoadingPage />}>
         <Routes>
           <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />

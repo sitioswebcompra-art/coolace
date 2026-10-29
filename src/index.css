@@ -22,3 +22,65 @@
   .modal-overlay { @apply fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto; }
   .modal-content { @apply bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden; }
 }
+
+.app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.app-sidebar {
+  height: 100vh;
+  height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.app-shell > main > header {
+  height: auto;
+  min-height: calc(4rem + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+}
+
+.app-shell > main {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.app-shell header a,
+.app-sidebar nav a {
+  min-height: 44px;
+}
+
+.pwa-experience {
+  position: fixed;
+  top: max(0.5rem, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 60;
+  width: min(48rem, calc(100vw - 2rem));
+  transform: translateX(-50%);
+}
+
+@media (max-width: 767px) {
+  button,
+  input[type='button'],
+  input[type='submit'],
+  input[type='reset'],
+  select {
+    min-height: 44px;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .modal-overlay {
+    align-items: flex-start;
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .modal-overlay form {
+    max-height: min(78dvh, calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 2rem));
+  }
+}

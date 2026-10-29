@@ -279,6 +279,13 @@ export const DataProvider = ({ children }) => {
   }, [authLoading, refreshData]);
 
   useEffect(() => {
+    if (!user || !supabase) return undefined;
+    const refreshWhenOnline = () => refreshData({ force: true });
+    window.addEventListener('online', refreshWhenOnline);
+    return () => window.removeEventListener('online', refreshWhenOnline);
+  }, [user, refreshData]);
+
+  useEffect(() => {
     if (authLoading || !user || !supabase) {
       setRealtimeError('');
       return undefined;

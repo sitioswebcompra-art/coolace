@@ -70,3 +70,7 @@ Después de cambiar `.env`, detén y vuelve a iniciar Vite para que recargue las
 - **La clave pertenece a otro proyecto:** Project URL y clave pública deben copiarse del mismo proyecto Supabase.
 
 Este proyecto no crea registros de demostración en la base de datos conectada para evitar mezclar datos ficticios con datos reales. Las integraciones de correo, WhatsApp y mapas necesitan configuración de proveedor externo; por ahora la recuperación usa Auth y WhatsApp utiliza el enlace compartido del navegador.
+
+## Aplicación instalable (PWA)
+
+La aplicación ofrece una experiencia instalable en conexiones HTTPS. En Android, abre el sitio actualizado en Chrome y utiliza **Instalar** cuando aparezca el aviso, o el menú del navegador > **Instalar aplicación**. En iPhone y iPad, abre el sitio en Safari, toca **Compartir** y selecciona **Añadir a pantalla de inicio**. La PWA guarda el shell y los recursos estáticos para poder abrir la interfaz sin conexión, pero las consultas y escrituras a Supabase, el inicio de sesión y las demás operaciones remotas requieren Internet; los datos dinámicos no se guardan en la caché del service worker.

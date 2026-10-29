@@ -24,8 +24,6 @@ const tablesByPath = {
   '/login': [],
   '/acceso-denegado': [],
 };
-const dashboardTables = ['clientes', 'vehiculos', 'ordenes', 'informes_tecnicos', 'cotizaciones', 'notificaciones'];
-const dashboardBundleTable = '__dashboard_bundle';
 const tableNames = {
   clientes: 'clientes',
   vehiculos: 'vehiculos',
@@ -117,6 +115,9 @@ const getRelatedReference = (error) => {
 };
 
 const getErrorMessage = (error) => {
+  if (error?.code === 'PGRST202') {
+    return 'Supabase no encuentra la función load_data_bundle. Ejecuta el database.sql actualizado en el SQL Editor del proyecto y vuelve a cargar la aplicación. Si ya lo ejecutaste, actualiza el esquema de la API en Supabase y vuelve a intentarlo.';
+  }
   if (error?.code === '42P01' || error?.code === 'PGRST205') {
     return 'Faltan tablas de la base de datos. Ejecuta database.sql en el SQL Editor del proyecto Supabase.';
   }
@@ -162,10 +163,7 @@ export const DataProvider = ({ children }) => {
     if (!key || !user) return;
     queryCache.current.delete(getQueryCacheKey(user.id, table));
     tableRefreshIds.current[key] = (tableRefreshIds.current[key] || 0) + 1;
-    if (dashboardTables.includes(table)) {
-      tableRefreshIds.current.dashboard = (tableRefreshIds.current.dashboard || 0) + 1;
-    }
-    inFlightQueries.current.delete(key);
+    inFlightQueries.current.clear();
   }, [user]);
 
   const refreshData = useCallback(async ({ silent = false, tables = activeTables, force = false } = {}) => {
@@ -202,34 +200,22 @@ export const DataProvider = ({ children }) => {
     if (user.role === 'Cliente') {
       tableRefreshIds.current.activity = (tableRefreshIds.current.activity || 0) + 1;
     }
-    const useDashboardBundle = Array.isArray(tables)
-      && dashboardTables.every((table) => tables.includes(table))
-      && tables.every((table) => dashboardTables.includes(table));
-    const queryDefinitions = useDashboardBundle
-      ? [['dashboard', dashboardBundleTable, () => supabase.rpc('load_dashboard_data')]]
-      : [
-      ['clientes', 'clientes', () => supabase.from('clientes').select(selectColumnsByTable.clientes).order('created_at', { ascending: false })],
-      ['vehiculos', 'vehiculos', () => supabase.from('vehiculos').select(selectColumnsByTable.vehiculos).order('created_at', { ascending: false })],
-      ['ordenes', 'ordenes', () => supabase.from('ordenes').select(selectColumnsByTable.ordenes).order('created_at', { ascending: false })],
-      ['tecnicos', 'tecnicos', () => supabase.from('tecnicos').select(selectColumnsByTable.tecnicos).order('nombre')],
-      ['informes', 'informes_tecnicos', () => supabase.from('informes_tecnicos').select(selectColumnsByTable.informes_tecnicos).order('created_at', { ascending: false })],
-      ['cotizaciones', 'cotizaciones', () => supabase.from('cotizaciones').select(selectColumnsByTable.cotizaciones).order('created_at', { ascending: false })],
-      ['cotizacionItems', 'cotizacion_items', () => supabase.from('cotizacion_items').select(selectColumnsByTable.cotizacion_items).order('id')],
-      ['repuestos', 'repuestos', () => supabase.from('repuestos').select(selectColumnsByTable.repuestos).order('nombre')],
-      ['notificaciones', 'notificaciones', () => supabase.from('notificaciones').select(selectColumnsByTable.notificaciones).order('created_at', { ascending: false }).limit(50)],
-      ...(user.role === 'Administrador' ? [['profiles', 'profiles', () => supabase.from('profiles').select(selectColumnsByTable.profiles).order('name')]] : []),
-      ...(user.role === 'Cliente' ? [] : [['activity', 'activity_logs', () => supabase.from('activity_logs').select(selectColumnsByTable.activity_logs).order('created_at', { ascending: false }).limit(200)]]),
-      ['companySettings', 'company_settings', () => supabase.from('company_settings').select(selectColumnsByTable.company_settings).maybeSingle()],
-      ];
-    const queries = queryDefinitions.filter(([, table]) => {
-      if (table === dashboardBundleTable) {
-        return force || dashboardTables.some((dashboardTable) => (
-          Date.now() - (queryCache.current.get(getQueryCacheKey(user.id, dashboardTable)) || 0) >= queryCacheDuration
-        ));
-      }
-      return (!tables || tables.includes(table))
-        && (force || Date.now() - (queryCache.current.get(getQueryCacheKey(user.id, table)) || 0) >= queryCacheDuration);
-    });
+    const queryDefinitions = [
+      ['clientes', 'clientes'],
+      ['vehiculos', 'vehiculos'],
+      ['ordenes', 'ordenes'],
+      ['tecnicos', 'tecnicos'],
+      ['informes', 'informes_tecnicos'],
+      ['cotizaciones', 'cotizaciones'],
+      ['cotizacionItems', 'cotizacion_items'],
+      ['repuestos', 'repuestos'],
+      ['notificaciones', 'notificaciones'],
+      ...(user.role === 'Administrador' ? [['profiles', 'profiles']] : []),
+      ...(user.role === 'Cliente' ? [] : [['activity', 'activity_logs']]),
+      ['companySettings', 'company_settings'],
+    ];
+    const queries = queryDefinitions.filter(([, table]) => (!tables || tables.includes(table))
+      && (force || Date.now() - (queryCache.current.get(getQueryCacheKey(user.id, table)) || 0) >= queryCacheDuration));
 
     if (!silent && queries.length) setIsLoaded(false);
 
@@ -239,60 +225,46 @@ export const DataProvider = ({ children }) => {
         tableRefreshIds.current[key] = requestId;
         return requestId;
       });
-      const requestPromises = queries.map(([key, , createQuery]) => {
-        const existing = inFlightQueries.current.get(key);
-        if (!force && existing?.userId === user.id) return existing.promise;
-
+      const requestedTables = queries.map(([, table]) => table);
+      const requestKey = `bundle:${[...requestedTables].sort().join(',')}`;
+      const existing = inFlightQueries.current.get(requestKey);
+      let requestPromise = existing?.userId === user.id && !force ? existing.promise : null;
+      if (!requestPromise) {
         const entry = {
           userId: user.id,
-          promise: Promise.resolve().then(createQuery),
+          promise: supabase.rpc('load_data_bundle', { p_tables: requestedTables }),
         };
-        inFlightQueries.current.set(key, entry);
+        inFlightQueries.current.set(requestKey, entry);
         entry.promise.then(
           () => {
-            if (inFlightQueries.current.get(key) === entry) inFlightQueries.current.delete(key);
+            if (inFlightQueries.current.get(requestKey) === entry) inFlightQueries.current.delete(requestKey);
           },
           () => {
-            if (inFlightQueries.current.get(key) === entry) inFlightQueries.current.delete(key);
+            if (inFlightQueries.current.get(requestKey) === entry) inFlightQueries.current.delete(requestKey);
           },
         );
-        return entry.promise;
-      });
-      const results = await Promise.all(requestPromises);
+        requestPromise = entry.promise;
+      }
+      const result = await requestPromise;
       const updates = {
         ...(user.role !== 'Administrador' ? { profiles: [] } : {}),
         ...(user.role === 'Cliente' ? { activity: [] } : {}),
       };
-      let firstError = null;
-
-      queries.forEach(([key], index) => {
-        if (tableRefreshIds.current[key] !== requestIds[index]) return;
-        const result = results[index];
-        if (result?.error) {
-          if (key === 'dashboard') {
-            dashboardTables.forEach((table) => queryCache.current.delete(getQueryCacheKey(user.id, table)));
-          } else {
-            queryCache.current.delete(getQueryCacheKey(user.id, queries[index][1]));
-          }
-          firstError ||= result.error;
-          if (isFullRefresh) {
-            if (key === 'dashboard') dashboardTables.forEach((table) => { updates[queryKeysByTable[table]] = []; });
-            else updates[key] = key === 'companySettings' ? null : [];
-          }
-          console.error('Error cargando datos de Supabase:', result.error);
-          return;
-        }
-        if (key === 'dashboard') {
-          dashboardTables.forEach((table) => {
-            queryCache.current.set(getQueryCacheKey(user.id, table), Date.now());
-            updates[queryKeysByTable[table]] = result?.data?.[queryKeysByTable[table]] ?? [];
-          });
-        } else {
-          queryCache.current.set(getQueryCacheKey(user.id, queries[index][1]), Date.now());
-          updates[key] = result?.data ?? (key === 'companySettings' ? null : []);
-        }
-      });
-      if (firstError) setDataError(getErrorMessage(firstError));
+      if (result?.error) {
+        queries.forEach(([key, table], index) => {
+          if (tableRefreshIds.current[key] !== requestIds[index]) return;
+          queryCache.current.delete(getQueryCacheKey(user.id, table));
+          if (isFullRefresh) updates[key] = key === 'companySettings' ? null : [];
+        });
+        console.error('Error cargando datos de Supabase:', result.error);
+        setDataError(getErrorMessage(result.error));
+      } else {
+        queries.forEach(([key, table], index) => {
+          if (tableRefreshIds.current[key] !== requestIds[index]) return;
+          queryCache.current.set(getQueryCacheKey(user.id, table), Date.now());
+          updates[key] = result?.data?.[key] ?? (key === 'companySettings' ? null : []);
+        });
+      }
       setData((current) => ({ ...current, ...updates }));
     } catch (error) {
       console.error('Error cargando datos de Supabase:', error);

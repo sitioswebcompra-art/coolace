@@ -1089,79 +1089,184 @@ grant select, insert, update on public.tecnicos, public.informes_tecnicos, publi
   public.company_settings to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
 
-create or replace function public.load_dashboard_data()
+create or replace function public.load_data_bundle(p_tables text[])
 returns jsonb
-language sql
+language plpgsql
 stable
 security invoker
 set search_path = ''
 as $$
-  select pg_catalog.jsonb_build_object(
-    'clientes', coalesce((
-      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc)
-      from (
-        select id, tipo, nombre, rut, contacto, telefono, email, direccion, comuna, ciudad,
-          condiciones_pago, notas, estado, created_at, updated_at, archived_at
-        from public.clientes
-        order by created_at desc
-      ) as row_data
-    ), '[]'::jsonb),
-    'vehiculos', coalesce((
-      select pg_catalog.jsonb_agg((pg_catalog.to_jsonb(row_data) - 'created_at') order by row_data.created_at desc)
-      from (
-        select id, patente, marca, modelo, "clienteId", estado, anio, vin, tipo_vehiculo,
-          kilometraje, equipo_marca, equipo_modelo, refrigerante, capacidad_enfriamiento,
-          horas_uso, tipo_sistema, numero_serie_equipo, fecha_instalacion, ultimo_mantenimiento,
-          proximo_mantenimiento, observaciones, updated_at, archived_at, created_at
-        from public.vehiculos
-        order by created_at desc
-      ) as row_data
-    ), '[]'::jsonb),
-    'ordenes', coalesce((
-      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc)
-      from (
-        select id, "vehiculoId", "clienteId", servicio, estado, fecha, tecnico, descripcion,
-          direccion, hora_inicio, duracion_estimada, tecnico_id, zona, prioridad, observaciones,
-          created_at, updated_at, archived_at
-        from public.ordenes
-        order by created_at desc
-      ) as row_data
-    ), '[]'::jsonb),
-    'informes', coalesce((
-      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc)
-      from (
-        select id, orden_id, estado, llegada, termino, ubicacion, tipo_trabajo, checklist,
-          mediciones, diagnostico, fallas, repuestos, materiales, archivos, observaciones,
-          recomendaciones, firma_path, created_at, updated_at, archived_at
-        from public.informes_tecnicos
-        order by created_at desc
-      ) as row_data
-    ), '[]'::jsonb),
-    'cotizaciones', coalesce((
-      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc)
-      from (
-        select id, numero, orden_id, informe_id, "clienteId", "vehiculoId", estado,
-          fecha_emision, fecha_vencimiento, mano_obra, descuento, impuestos, total_neto, total,
-          condiciones_pago, tiempo_estimado, garantia, observaciones, created_at, updated_at,
-          archived_at
-        from public.cotizaciones
-        order by created_at desc
-      ) as row_data
-    ), '[]'::jsonb),
-    'notificaciones', coalesce((
-      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc)
-      from (
-        select id, titulo, mensaje, leida, enlace, created_at
-        from public.notificaciones
-        order by created_at desc
-        limit 50
-      ) as row_data
-    ), '[]'::jsonb)
-  );
+declare
+  result jsonb := '{}'::jsonb;
+  rows jsonb;
+begin
+  if p_tables is null then
+    raise exception 'Debes indicar las tablas que necesitas consultar.'
+      using errcode = '22023';
+  end if;
+
+  if not (p_tables <@ array[
+    'clientes', 'vehiculos', 'ordenes', 'tecnicos', 'informes_tecnicos',
+    'cotizaciones', 'cotizacion_items', 'repuestos', 'notificaciones',
+    'profiles', 'activity_logs', 'company_settings'
+  ]::text[]) then
+    raise exception 'La solicitud contiene una tabla no permitida.'
+      using errcode = '22023';
+  end if;
+
+  if 'clientes' = any(p_tables) then
+    select coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc), '[]'::jsonb)
+    into rows
+    from (
+      select id, tipo, nombre, rut, contacto, telefono, email, direccion, comuna, ciudad,
+        condiciones_pago, notas, estado, created_at, updated_at, archived_at
+      from public.clientes
+      order by created_at desc
+    ) as row_data;
+    result := result || pg_catalog.jsonb_build_object('clientes', rows);
+  end if;
+
+  if 'vehiculos' = any(p_tables) then
+    select coalesce(pg_catalog.jsonb_agg((pg_catalog.to_jsonb(row_data) - 'created_at') order by row_data.created_at desc), '[]'::jsonb)
+    into rows
+    from (
+      select id, patente, marca, modelo, "clienteId", estado, anio, vin, tipo_vehiculo,
+        kilometraje, equipo_marca, equipo_modelo, refrigerante, capacidad_enfriamiento,
+        horas_uso, tipo_sistema, numero_serie_equipo, fecha_instalacion, ultimo_mantenimiento,
+        proximo_mantenimiento, observaciones, updated_at, archived_at, created_at
+      from public.vehiculos
+      order by created_at desc
+    ) as row_data;
+    result := result || pg_catalog.jsonb_build_object('vehiculos', rows);
+  end if;
+
+  if 'ordenes' = any(p_tables) then
+    select coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc), '[]'::jsonb)
+    into rows
+    from (
+      select id, "vehiculoId", "clienteId", servicio, estado, fecha, tecnico, descripcion,
+        direccion, hora_inicio, duracion_estimada, tecnico_id, zona, prioridad, observaciones,
+        created_at, updated_at, archived_at
+      from public.ordenes
+      order by created_at desc
+    ) as row_data;
+    result := result || pg_catalog.jsonb_build_object('ordenes', rows);
+  end if;
+
+  if 'tecnicos' = any(p_tables) then
+    select coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.nombre), '[]'::jsonb)
+    into rows
+    from (
+      select id, user_id, nombre, telefono, email, especialidad, zona, estado, archived_at
+      from public.tecnicos
+      order by nombre
+    ) as row_data;
+    result := result || pg_catalog.jsonb_build_object('tecnicos', rows);
+  end if;
+
+  if 'informes_tecnicos' = any(p_tables) then
+    select coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc), '[]'::jsonb)
+    into rows
+    from (
+      select id, orden_id, estado, llegada, termino, ubicacion, tipo_trabajo, checklist,
+        mediciones, diagnostico, fallas, repuestos, materiales, archivos, observaciones,
+        recomendaciones, firma_path, created_at, updated_at, archived_at
+      from public.informes_tecnicos
+      order by created_at desc
+    ) as row_data;
+    result := result || pg_catalog.jsonb_build_object('informes', rows);
+  end if;
+
+  if 'cotizaciones' = any(p_tables) then
+    select coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc), '[]'::jsonb)
+    into rows
+    from (
+      select id, numero, orden_id, informe_id, "clienteId", "vehiculoId", estado,
+        fecha_emision, fecha_vencimiento, mano_obra, descuento, impuestos, total_neto, total,
+        condiciones_pago, tiempo_estimado, garantia, observaciones, created_at, updated_at,
+        archived_at
+      from public.cotizaciones
+      order by created_at desc
+    ) as row_data;
+    result := result || pg_catalog.jsonb_build_object('cotizaciones', rows);
+  end if;
+
+  if 'cotizacion_items' = any(p_tables) then
+    select coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.id), '[]'::jsonb)
+    into rows
+    from (
+      select id, cotizacion_id, repuesto_id, descripcion, cantidad, precio_unitario, impuesto, tipo
+      from public.cotizacion_items
+      order by id
+    ) as row_data;
+    result := result || pg_catalog.jsonb_build_object('cotizacionItems', rows);
+  end if;
+
+  if 'repuestos' = any(p_tables) then
+    select coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.nombre), '[]'::jsonb)
+    into rows
+    from (
+      select id, codigo, nombre, categoria, marca, descripcion, precio_compra, precio_venta,
+        impuesto, stock, unidad, estado, observaciones, archived_at
+      from public.repuestos
+      order by nombre
+    ) as row_data;
+    result := result || pg_catalog.jsonb_build_object('repuestos', rows);
+  end if;
+
+  if 'notificaciones' = any(p_tables) then
+    select coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc), '[]'::jsonb)
+    into rows
+    from (
+      select id, titulo, mensaje, leida, enlace, created_at
+      from public.notificaciones
+      order by created_at desc
+      limit 50
+    ) as row_data;
+    result := result || pg_catalog.jsonb_build_object('notificaciones', rows);
+  end if;
+
+  if 'profiles' = any(p_tables) then
+    select coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.name), '[]'::jsonb)
+    into rows
+    from (
+      select id, name, email, role, cliente_id, activo, created_at
+      from public.profiles
+      order by name
+    ) as row_data;
+    result := result || pg_catalog.jsonb_build_object('profiles', rows);
+  end if;
+
+  if 'activity_logs' = any(p_tables) then
+    select coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) order by row_data.created_at desc), '[]'::jsonb)
+    into rows
+    from (
+      select id, cliente_id, vehiculo_id, orden_id, entidad, entidad_id, accion, descripcion, created_at
+      from public.activity_logs
+      order by created_at desc
+      limit 200
+    ) as row_data;
+    result := result || pg_catalog.jsonb_build_object('activity', rows);
+  end if;
+
+  if 'company_settings' = any(p_tables) then
+    select pg_catalog.to_jsonb(row_data)
+    into rows
+    from (
+      select id, nombre, rut, direccion, telefono, email, logo_url, impuesto, condiciones_pago
+      from public.company_settings
+      limit 1
+    ) as row_data;
+    result := result || pg_catalog.jsonb_build_object('companySettings', rows);
+  end if;
+
+  return result;
+end;
 $$;
 
-revoke all on function public.load_dashboard_data() from public, anon;
-grant execute on function public.load_dashboard_data() to authenticated;
+revoke all on function public.load_data_bundle(text[]) from public, anon;
+grant execute on function public.load_data_bundle(text[]) to authenticated;
+drop function if exists public.load_dashboard_data();
 
 -- El registro publico de usuarios se mantiene desactivado.
 -- Crear usuarios internos desde Authentication > Users; el trigger crea su perfil.
@@ -1200,3 +1305,5 @@ begin
   end loop;
 end;
 $$;
+
+notify pgrst, 'reload schema';
